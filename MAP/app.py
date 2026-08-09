@@ -411,7 +411,9 @@ class AppHandler(BaseHTTPRequestHandler):
             "/video/video_app.js": PRODUCT_ROOT / "video_app.js",
             "/video/video_map.js": PRODUCT_ROOT / "video_map.js",
             "/video/destination_set.wav": PRODUCT_ROOT / "destination_set.wav",
+            "/video/destination_arrived.wav": PRODUCT_ROOT / "destination_arrived.wav",
             "/video/return_to_base.wav": PRODUCT_ROOT / "return_to_base.wav",
+            "/video/daylight_detail.wav": PRODUCT_ROOT / "daylight_detail.wav",
         }
         target = mapping.get(request_path)
         if not target or not target.is_file():

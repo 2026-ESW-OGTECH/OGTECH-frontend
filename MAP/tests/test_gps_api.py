@@ -151,7 +151,12 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertIn("btnCheckpoint", html)
         self.assertIn("btnBasecamp", html)
         self.assertIn("btnNight", html)
-        self.assertIn("식수 가능 여부는 판정하지 않습니다", html)
+        self.assertIn("arrivalCard", html)
+        self.assertIn("목적지에 도착하였습니다.", html)
+        self.assertIn("destination_arrived.wav", html)
+        self.assertIn("daylight_detail.wav", html)
+        self.assertNotIn("dialogueCard", html)
+        self.assertNotIn("나 목마른데 물 마실 곳 찾아줘", html)
 
         connection = HTTPConnection("127.0.0.1", self.port, timeout=5.0)
         try:
@@ -166,6 +171,33 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertIn("speedMps: 4.0", video_app)
         self.assertIn("function saveCheckpoint()", video_app)
         self.assertIn("function showBasecampRoute()", video_app)
+        self.assertIn("function routeOnTrails(", video_app)
+        self.assertIn("function selectMapDestination(", video_app)
+        self.assertIn('canvas.addEventListener("click", selectMapDestination)', video_app)
+        self.assertIn('playFixedAudio("arrival")', video_app)
+        self.assertIn("베이스캠프가 등록되었습니다.", video_app)
+        self.assertIn("베이스캠프 복귀 경로가 설정되었습니다.", video_app)
+        self.assertIn("야간 모드가 활성화되었습니다.", video_app)
+        self.assertIn("현재 위치 기준으로 약 한 시간 뒤에 해가 집니다.", video_app)
+        self.assertNotIn("일감호 경로 이동 재생", video_app)
+        self.assertNotIn("BASE CAMP 복귀 경로 재생", video_app)
+
+        for audio_name in (
+            "destination_set.wav",
+            "destination_arrived.wav",
+            "return_to_base.wav",
+            "daylight_detail.wav",
+        ):
+            connection = HTTPConnection("127.0.0.1", self.port, timeout=5.0)
+            try:
+                connection.request("GET", f"/video/{audio_name}")
+                response = connection.getresponse()
+                audio = response.read()
+            finally:
+                connection.close()
+            self.assertEqual(response.status, 200)
+            self.assertGreater(len(audio), 1_000)
+            self.assertEqual(audio[:4], b"RIFF")
 
         connection = HTTPConnection("127.0.0.1", self.port, timeout=5.0)
         try:

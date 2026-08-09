@@ -22,63 +22,29 @@
 .video-screen .glance .sub { white-space: nowrap; }
 .video-screen .glance-env strong { font-size: 26px; }
 
-.dialogue-card {
+.video-screen .map-canvas.destination-selecting { cursor: crosshair; }
+
+.arrival-card {
   position: absolute;
   z-index: 4;
   left: 50%;
   top: 50%;
-  width: 650px;
-  padding: 18px 22px;
+  width: 620px;
+  padding: 30px 24px;
   transform: translate(-50%, -50%);
   background: #101818;
-  border: 2px solid var(--amber);
+  border: 2px solid var(--cyan);
   box-shadow: inset 0 1px 0 #30403e;
+  text-align: center;
 }
 
-.dialogue-card[hidden] { display: none; }
+.arrival-card[hidden] { display: none; }
 
-.dialogue-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.dialogue-label,
-.dialogue-source {
-  font-family: Consolas, "Courier New", monospace;
-  font-size: 15px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-}
-
-.dialogue-label { color: var(--amber); }
-.dialogue-source { color: var(--cyan); }
-
-.utterance {
-  margin: 0;
-  color: var(--text);
-  font-size: 25px;
-  font-weight: 750;
-  line-height: 1.3;
-}
-
-.dialogue-answer {
-  margin: 12px 0 0;
+.arrival-card strong {
   color: var(--cyan);
-  font-size: 30px;
+  font-size: 36px;
   font-weight: 850;
   line-height: 1.15;
-}
-
-.dialogue-safety {
-  margin: 12px 0 0;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 20px;
-  line-height: 1.25;
 }
 
 .map-engine-verified {

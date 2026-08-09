@@ -46,7 +46,7 @@ app.py  gps_service.py  map_engine.py  requirements.txt
 runtime  sample_data  static  tests  시연용
 ```
 
-`시연용` 폴더 안도 확인합니다. 오늘 촬영에는 **`video.html`, `video_map.js`, WAV 두 개**가 필요합니다.
+`시연용` 폴더 안도 확인합니다. 오늘 촬영에는 **`video.html`, `video_map.js`, WAV 네 개**가 필요합니다.
 
 ```bash
 ls /home/kit/00_TEST/MAP/시연용
@@ -54,7 +54,8 @@ ls /home/kit/00_TEST/MAP/시연용
 
 ```
 VIDEO_DEMO_2026-08-09.md  video.html  video_app.js  video_map.js
-video_styles.css  destination_set.wav  return_to_base.wav
+video_styles.css  destination_set.wav  destination_arrived.wav
+return_to_base.wav  daylight_detail.wav
 ```
 
 ---

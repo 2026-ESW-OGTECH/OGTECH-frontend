@@ -62,44 +62,44 @@ const SCENES = {
     title: "BASE CAMP 시작",
     current: "basecamp", target: null, route: null,
     daylight: 138, sunset: "19:32", routeValue: "BASE CAMP", routeSub: "공학관 뒤편",
-    alert: null, dialogue: false, toast: "BASE CAMP 저장 · 공학관 뒤편",
+    alert: null, arrival: null, toast: null,
   },
   2: {
     title: "음성 요청 → 일감호 설정",
     current: "basecamp", target: "destination", route: "routeOutbound",
     daylight: 132, sunset: "19:32", routeValue: "일감호", routeSub: "목적지 설정됨",
-    alert: null, dialogue: true, toast: null,
+    alert: null, arrival: null, toast: null,
   },
   3: {
     title: "일감호로 이동",
     current: "basecamp", target: "destination", route: "routeOutbound",
     daylight: 126, sunset: "19:32", routeValue: "이동 중", routeSub: "일감호 방향",
-    alert: null, dialogue: false, toast: "일감호 경로 이동 재생",
+    alert: null, arrival: null, toast: null,
   },
   4: {
     title: "일감호 도착",
     current: "destination", target: null, route: null,
     daylight: 67, sunset: "19:32", routeValue: "도착", routeSub: "일감호 북쪽 산책로",
-    alert: null, dialogue: false, toast: "일감호 도착",
+    alert: null, arrival: "목적지에 도착하였습니다.", toast: null,
   },
   5: {
     title: "1시간 일조 경고",
     current: "destination", target: "basecamp", route: "routeReturn",
     daylight: 60, sunset: "19:32", routeValue: "복귀 필요", routeSub: "BASE CAMP 경로",
-    alert: "1시간 뒤에 해가 질 예정입니다. BASE CAMP로 돌아가세요.",
-    dialogue: false, toast: null,
+    alert: "해가 곧 집니다. 안전을 위해 베이스캠프로 돌아가는 것을 권장합니다.",
+    arrival: null, toast: null,
   },
   6: {
     title: "BASE CAMP 복귀",
     current: "destination", target: "basecamp", route: "routeReturn",
     daylight: 58, sunset: "19:32", routeValue: "복귀 중", routeSub: "공학관 뒤편",
-    alert: null, dialogue: false, toast: "BASE CAMP 복귀 경로 재생",
+    alert: null, arrival: null, toast: null,
   },
   7: {
     title: "BASE CAMP 도착",
     current: "basecamp", target: null, route: null,
     daylight: 54, sunset: "19:32", routeValue: "도착", routeSub: "BASE CAMP",
-    alert: null, dialogue: false, toast: "BASE CAMP 도착",
+    alert: null, arrival: null, toast: "BASE CAMP 도착",
   },
 };
 
@@ -109,6 +109,7 @@ const state = {
   scene: SCENES[1],
   night: false,
   checkpoint: null,
+  destinationSelecting: false,
 };
 
 const walk = {
@@ -160,6 +161,91 @@ function pathLengthMeters(coordinates) {
   return total;
 }
 
+function coordinateKey(point) {
+  return `${Number(point[0]).toFixed(7)},${Number(point[1]).toFixed(7)}`;
+}
+
+function buildTrailGraph() {
+  const graph = new Map();
+  const ensureNode = (point) => {
+    const key = coordinateKey(point);
+    if (!graph.has(key)) graph.set(key, { point: [point[0], point[1]], edges: new Map() });
+    return key;
+  };
+  const connect = (from, to) => {
+    const fromKey = ensureNode(from);
+    const toKey = ensureNode(to);
+    const weight = distanceMeters(
+      { lon: from[0], lat: from[1] },
+      { lon: to[0], lat: to[1] }
+    );
+    graph.get(fromKey).edges.set(toKey, weight);
+    graph.get(toKey).edges.set(fromKey, weight);
+  };
+  (state.map.trails || []).forEach((trail) => {
+    for (let index = 1; index < trail.length; index += 1) {
+      connect(trail[index - 1], trail[index]);
+    }
+  });
+  return graph;
+}
+
+function nearestGraphKey(graph, point) {
+  let nearestKey = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  graph.forEach((node, key) => {
+    const distance = distanceMeters(point, { lon: node.point[0], lat: node.point[1] });
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestKey = key;
+    }
+  });
+  return nearestKey;
+}
+
+function routeOnTrails(from, requestedDestination) {
+  const graph = buildTrailGraph();
+  const startKey = nearestGraphKey(graph, from);
+  const destinationKey = nearestGraphKey(graph, requestedDestination);
+  if (!startKey || !destinationKey) return null;
+
+  const distances = new Map([[startKey, 0]]);
+  const previous = new Map();
+  const queue = [[0, startKey]];
+  while (queue.length > 0) {
+    queue.sort((left, right) => right[0] - left[0]);
+    const [distance, key] = queue.pop();
+    if (distance !== distances.get(key)) continue;
+    if (key === destinationKey) break;
+    graph.get(key).edges.forEach((weight, neighborKey) => {
+      const candidate = distance + weight;
+      if (candidate < (distances.get(neighborKey) ?? Number.POSITIVE_INFINITY)) {
+        distances.set(neighborKey, candidate);
+        previous.set(neighborKey, key);
+        queue.push([candidate, neighborKey]);
+      }
+    });
+  }
+  if (!distances.has(destinationKey)) return null;
+
+  const keys = [];
+  for (let key = destinationKey; key; key = previous.get(key)) {
+    keys.push(key);
+    if (key === startKey) break;
+  }
+  keys.reverse();
+  const route = keys.map((key) => graph.get(key).point);
+  const first = route[0];
+  if (distanceMeters(from, { lon: first[0], lat: first[1] }) > 0.5) {
+    route.unshift([from.lon, from.lat]);
+  }
+  const destinationNode = graph.get(destinationKey).point;
+  return {
+    destination: { lon: destinationNode[0], lat: destinationNode[1] },
+    route,
+  };
+}
+
 function pointAlong(coordinates, meters) {
   let remaining = meters;
   for (let index = 1; index < coordinates.length; index += 1) {
@@ -206,6 +292,12 @@ function projection() {
         offsetX + (lon - bounds.west) * lonFactor * scale,
         offsetY + (bounds.north - lat) * scale,
       ];
+    },
+    fromScreen(x, y) {
+      return {
+        lon: bounds.west + (x - offsetX) / (lonFactor * scale),
+        lat: bounds.north - (y - offsetY) / scale,
+      };
     },
     metersToPixels(meters) {
       return (meters / 111320) * scale;
@@ -385,7 +477,11 @@ function draw() {
 
   drawNorthArrow(projector);
   drawMarker(state.map.basecamp, "BASE CAMP", cssVar("--amber"), projector, "triangle");
-  if (state.sceneKey >= 2) {
+  const sceneTarget = state.scene.target ? state.map[state.scene.target] : null;
+  if (sceneTarget && state.scene.target !== "basecamp") {
+    const targetLabel = state.scene.target === "destination" ? "일감호 목적지" : "목적지";
+    drawMarker(sceneTarget, targetLabel, cssVar("--cyan"), projector, "square");
+  } else if (state.sceneKey >= 2) {
     drawMarker(state.map.destination, "일감호 목적지", cssVar("--cyan"), projector, "square");
   }
   if (state.checkpoint) {
@@ -484,7 +580,13 @@ function render() {
     alertBox.hidden = true;
   }
   document.querySelector("#mapPanel").classList.toggle("has-alert", Boolean(scene.alert));
-  document.querySelector("#dialogueCard").hidden = !scene.dialogue;
+  const arrivalCard = document.querySelector("#arrivalCard");
+  if (scene.arrival) {
+    document.querySelector("#arrivalText").textContent = scene.arrival;
+    arrivalCard.hidden = false;
+  } else {
+    arrivalCard.hidden = true;
+  }
 
   const target = scene.target ? state.map[scene.target] : null;
   const readout = document.querySelector("#readout");
@@ -493,7 +595,11 @@ function render() {
   } else {
     readout.hidden = false;
     document.querySelector("#readoutLabel").textContent =
-      scene.target === "basecamp" ? "BASE CAMP" : "일감호";
+      scene.target === "basecamp"
+        ? "BASE CAMP"
+        : scene.target === "destination"
+          ? "일감호"
+          : "목적지";
     document.querySelector("#readoutBearing").textContent =
       `${String(Math.round(bearingDegrees(current, target))).padStart(3, "0")}°`;
     const route = state.map[scene.route];
@@ -523,9 +629,8 @@ function walkFrame(timestamp) {
   if (next.done) {
     walk.playing = false;
     walk.lastFrame = 0;
-    showToast(state.sceneKey === 3
-      ? "일감호 도착 · 숫자 4로 고정 화면"
-      : "BASE CAMP 도착 · 숫자 7로 고정 화면", 4200);
+    setScene(state.sceneKey === 3 ? 4 : 7);
+    return;
   }
   render();
   if (walk.playing) window.requestAnimationFrame(walkFrame);
@@ -560,15 +665,30 @@ function fallbackSpeech(text) {
 }
 
 function playFixedAudio(kind) {
-  const warning = kind === "warning";
-  const audio = document.querySelector(warning ? "#warningAudio" : "#destinationAudio");
-  const text = warning
-    ? "1시간 뒤에 해가 질 예정입니다. 베이스 캠프로 돌아가세요."
-    : "일감호를 목적지로 설정했습니다. 경로는 지도 엔진이 계산했습니다.";
+  const fixedAudio = {
+    destination: {
+      selector: "#destinationAudio",
+      text: "가까운 곳에 일감호 주변 휴식 지점이 있습니다. 목적지로 설정할게요. 경로 설정을 완료했습니다.",
+    },
+    arrival: {
+      selector: "#arrivalAudio",
+      text: "목적지에 도착하였습니다.",
+    },
+    warning: {
+      selector: "#warningAudio",
+      text: "해가 곧 집니다. 안전을 위해 베이스캠프로 돌아가는 것을 권장합니다.",
+    },
+    daylightDetail: {
+      selector: "#daylightDetailAudio",
+      text: "현재 위치 기준으로 약 한 시간 뒤에 해가 집니다.",
+    },
+  };
+  const selected = fixedAudio[kind] || fixedAudio.destination;
+  const audio = document.querySelector(selected.selector);
   audio.currentTime = 0;
   const playing = audio.play();
   if (playing && typeof playing.catch === "function") {
-    playing.catch(() => fallbackSpeech(text));
+    playing.catch(() => fallbackSpeech(selected.text));
   }
 }
 
@@ -577,6 +697,7 @@ function setScene(key, options) {
   if (!SCENES[sceneKey]) return;
   window.clearTimeout(walkStartTimer);
   stopWalk(false);
+  setDestinationSelection(false);
   state.sceneKey = sceneKey;
   state.scene = SCENES[sceneKey];
   showToast(state.scene.toast, sceneKey === 4 || sceneKey === 7 ? 4000 : 2600);
@@ -584,6 +705,7 @@ function setScene(key, options) {
 
   const withAudio = !options || options.audio !== false;
   if (sceneKey === 2 && withAudio) playFixedAudio("destination");
+  if (sceneKey === 4 && withAudio) playFixedAudio("arrival");
   if (sceneKey === 5 && withAudio) playFixedAudio("warning");
   const autoWalk = !options || options.autoWalk !== false;
   if ((sceneKey === 3 || sceneKey === 6) && autoWalk) {
@@ -595,10 +717,45 @@ function nextScene() {
   setScene(state.sceneKey >= 7 ? 1 : state.sceneKey + 1);
 }
 
-function setNight(on) {
+function setNight(on, announce) {
   state.night = on;
   document.documentElement.dataset.night = on ? "on" : "off";
   document.querySelector("#btnNight").setAttribute("aria-pressed", String(on));
+  if (announce) {
+    showToast(on ? "야간 모드가 활성화되었습니다." : "야간 모드가 해제되었습니다.", 2800);
+  }
+  render();
+}
+
+function setDestinationSelection(on) {
+  state.destinationSelecting = on;
+  document.querySelector("#btnDestination").setAttribute("aria-pressed", String(on));
+  canvas.classList.toggle("destination-selecting", on);
+}
+
+function selectMapDestination(event) {
+  if (!state.destinationSelecting) return;
+  const rect = canvas.getBoundingClientRect();
+  const requested = projection().fromScreen(event.clientX - rect.left, event.clientY - rect.top);
+  const from = currentPoint();
+  const result = routeOnTrails(from, requested);
+  setDestinationSelection(false);
+  if (!result) return;
+  state.map.manualStart = { lon: from.lon, lat: from.lat };
+  state.map.manualDestination = result.destination;
+  state.map.routeToManualDestination = result.route;
+  state.sceneKey = 2;
+  state.scene = {
+    ...SCENES[2],
+    title: "터치 목적지 설정",
+    current: "manualStart",
+    target: "manualDestination",
+    route: "routeToManualDestination",
+    routeValue: "목적지",
+    routeSub: "터치 지정",
+    arrival: null,
+    toast: null,
+  };
   render();
 }
 
@@ -642,13 +799,27 @@ function showBasecampRoute() {
     routeSub: "복귀 경로 표시",
   };
   render();
-  showToast("BASE CAMP 복귀 경로를 표시합니다.", 2600);
+  showToast("베이스캠프 복귀 경로가 설정되었습니다.", 2800);
 }
 
-document.querySelector("#btnDestination").addEventListener("click", () => setScene(2));
+function handleBasecampButton() {
+  if (state.sceneKey === 1) {
+    const current = currentPoint();
+    state.map.basecamp = { lon: current.lon, lat: current.lat };
+    render();
+    showToast("베이스캠프가 등록되었습니다.", 2800);
+    return;
+  }
+  showBasecampRoute();
+}
+
+document.querySelector("#btnDestination").addEventListener("click", () => {
+  setDestinationSelection(!state.destinationSelecting);
+});
 document.querySelector("#btnCheckpoint").addEventListener("click", saveCheckpoint);
-document.querySelector("#btnBasecamp").addEventListener("click", showBasecampRoute);
-document.querySelector("#btnNight").addEventListener("click", () => setNight(!state.night));
+document.querySelector("#btnBasecamp").addEventListener("click", handleBasecampButton);
+document.querySelector("#btnNight").addEventListener("click", () => setNight(!state.night, true));
+canvas.addEventListener("click", selectMapDestination);
 
 window.addEventListener("keydown", (event) => {
   if (/^[1-7]$/.test(event.key)) {
@@ -657,11 +828,18 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     nextScene();
   } else if (event.key === "b" || event.key === "B") {
-    playFixedAudio(state.sceneKey === 5 ? "warning" : "destination");
+    const audioKind = state.sceneKey === 5
+      ? "warning"
+      : state.sceneKey === 4
+        ? "arrival"
+        : "destination";
+    playFixedAudio(audioKind);
+  } else if (event.key === "t" || event.key === "T") {
+    playFixedAudio("daylightDetail");
   } else if (event.key === "r" || event.key === "R") {
     setScene(1, { audio: false });
   } else if (event.key === "n" || event.key === "N") {
-    setNight(!state.night);
+    setNight(!state.night, true);
   } else if (event.key === "c" || event.key === "C") {
     saveCheckpoint();
   } else if (event.key === "h" || event.key === "H") {
