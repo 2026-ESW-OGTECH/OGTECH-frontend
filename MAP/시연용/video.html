@@ -13,10 +13,13 @@
   <div class="stage">
     <main class="screen video-screen" aria-label="SafeAid 건국대 영상 촬영 전용 지도">
       <header class="strip" aria-label="핵심 상태">
-        <section class="glance" id="glanceGps" data-state="caution">
-          <p class="stencil">POSITION</p>
-          <strong>±4.2 m</strong>
-          <span class="sub">SAT 9 · AGE 1s</span>
+        <section class="glance glance-location" id="glanceLocation" data-state="normal">
+          <p class="stencil">LOCATION · TIME</p>
+          <strong>서울 광진구</strong>
+          <span class="sub location-meta">
+            <span>대한민국</span>
+            <span id="locationClock">----.--.-- --:-- KST</span>
+          </span>
         </section>
         <section class="glance glance-sun" id="glanceSun" data-state="normal">
           <p class="stencil">DAYLIGHT</p>
@@ -26,10 +29,13 @@
           </strong>
           <span class="sub" id="daylightSub" hidden></span>
         </section>
-        <section class="glance" id="glanceTime" data-state="normal">
-          <p class="stencil">SEOUL TIME</p>
-          <strong>--:--:--</strong>
-          <span class="sub">KST · 시스템 시각</span>
+        <section class="glance glance-coordinate" id="glanceCoordinate" data-state="caution">
+          <div class="glance-heading">
+            <p class="stencil">CURRENT COORD</p>
+            <span class="tag-demo">DEMO</span>
+          </div>
+          <strong id="currentLatitude">37.541794 N</strong>
+          <span class="sub" id="currentLongitude">127.079517 E</span>
         </section>
         <section class="glance" id="glanceRoute" data-state="caution">
           <p class="stencil">ROUTE</p>
@@ -46,12 +52,6 @@
       <section class="map" id="mapPanel" aria-label="공학관과 일감호 오프라인 지도">
         <canvas id="mapCanvas"></canvas>
 
-        <div class="map-topline">
-          <span id="mapName">건국대학교 · 공학관 ↔ 일감호</span>
-          <span class="tag-offline">OFFLINE</span>
-          <span class="tag-demo">DEMO</span>
-        </div>
-
         <div class="alert" id="alert" role="alert" hidden>
           <span class="alert-dot" aria-hidden="true"></span>
           <strong id="alertText">해가 지기까지 1시간 남았습니다. Base Camp로 돌아가세요.</strong>
@@ -63,14 +63,17 @@
 
         <section class="readout-card" id="readout" aria-label="코드가 계산한 경로 정보" hidden>
           <div class="readout-head">
-            <p class="stencil" id="readoutLabel">일감호</p>
+            <p class="stencil" id="readoutLabel">목적지</p>
             <span class="verified map-engine-verified">MAP ENGINE</span>
           </div>
           <div class="readout-body">
             <span class="bearing" id="readoutBearing">—</span>
             <span class="distance" id="readoutDistance">—</span>
           </div>
-          <p class="readout-sub" id="readoutSub">경로·방위·거리는 코드 계산</p>
+          <div class="readout-coordinates" id="readoutCoordinates">
+            <span id="readoutCurrentCoordinate">현재 위도 — · 경도 —</span>
+            <span id="readoutTargetCoordinate">목표 위도 — · 경도 —</span>
+          </div>
         </section>
 
         <div class="map-meta">

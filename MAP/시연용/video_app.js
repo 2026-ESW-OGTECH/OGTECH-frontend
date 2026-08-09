@@ -1,6 +1,6 @@
 /* SafeAid 건국대학교 시연 영상 전용 MAP — 1024x600
  *
- * 이 화면의 현재 위치·센서·일조 값은 촬영용 합성값이다. 그래서 지도 제목 옆 DEMO 배지를 표시하고
+ * 이 화면의 현재 위치·센서·일조 값은 촬영용 합성값이다. 그래서 현재 좌표 칸에 DEMO 배지를 표시하고
  * 녹색 LIVE 상태를 쓰지 않는다. 공개 POI와 보행망은 오프라인 파일이며, 경로·방위·거리는
  * 아래 코드와 map_engine이 계산한다. LLM은 좌표나 숫자를 생성하지 않는다.
  */
@@ -548,12 +548,8 @@ function updateSeoulClock() {
   seoulClockFormatter.formatToParts(new Date()).forEach((part) => {
     if (part.type !== "literal") parts[part.type] = part.value;
   });
-  setGlance(
-    "#glanceTime",
-    "normal",
-    `${parts.hour}:${parts.minute}:${parts.second}`,
-    `${parts.year}.${parts.month}.${parts.day} KST`
-  );
+  document.querySelector("#locationClock").textContent =
+    `${parts.year}.${parts.month}.${parts.day} ${parts.hour}:${parts.minute} KST`;
 }
 
 function formatDaylightRemaining(minutes) {
@@ -562,6 +558,17 @@ function formatDaylightRemaining(minutes) {
   if (hours > 0 && rest === 0) return `${hours}시간 남음`;
   if (hours > 0) return `${hours}시간 ${rest}분 남음`;
   return `${rest}분 남음`;
+}
+
+function formatCoordinate(value) {
+  return Number(value).toFixed(6);
+}
+
+function setCurrentCoordinateGlance(current) {
+  document.querySelector("#currentLatitude").textContent =
+    `${formatCoordinate(current.lat)} N`;
+  document.querySelector("#currentLongitude").textContent =
+    `${formatCoordinate(current.lon)} E`;
 }
 
 function setDaylightGlance(scene) {
@@ -649,9 +656,9 @@ function completeAutoWalk(reachedDestination) {
 function render() {
   const scene = state.scene;
   const current = currentPoint();
-  setGlance("#glanceGps", "caution", "±4.2 m", "SAT 9 · AGE 1s");
   setDaylightGlance(scene);
   updateSeoulClock();
+  setCurrentCoordinateGlance(current);
   setGlance(
     "#glanceRoute",
     scene.alert ? "warn" : "caution",
@@ -682,12 +689,8 @@ function render() {
     readout.hidden = true;
   } else {
     readout.hidden = false;
-    document.querySelector("#readoutLabel").textContent =
-      scene.target === "basecamp"
-        ? "BASE CAMP"
-        : scene.target === "destination"
-          ? "일감호"
-          : "목적지";
+    const targetLabel = scene.target === "basecamp" ? "BASE CAMP" : "목적지";
+    document.querySelector("#readoutLabel").textContent = targetLabel;
     document.querySelector("#readoutBearing").textContent =
       `${String(Math.round(bearingDegrees(current, target))).padStart(3, "0")}°`;
     const route = state.map[scene.route];
@@ -696,11 +699,12 @@ function render() {
       ? Math.max(0, total - walk.meters)
       : total;
     document.querySelector("#readoutDistance").textContent = `${Math.round(remaining)} m`;
-    document.querySelector("#readoutSub").textContent =
-      `지도 엔진 경로 ${Math.round(remaining)} m · LLM 숫자 생성 안 함`;
+    document.querySelector("#readoutCurrentCoordinate").textContent =
+      `현재 위도 ${formatCoordinate(current.lat)} · 경도 ${formatCoordinate(current.lon)}`;
+    document.querySelector("#readoutTargetCoordinate").textContent =
+      `목표 위도 ${formatCoordinate(target.lat)} · 경도 ${formatCoordinate(target.lon)}`;
   }
 
-  document.querySelector("#mapName").textContent = state.map.name;
   document.querySelector("#mapAttribution").textContent = state.map.attribution;
   document.querySelector("#directorKey").textContent = String(state.sceneKey);
   document.querySelector("#directorScene").textContent = scene.title;
