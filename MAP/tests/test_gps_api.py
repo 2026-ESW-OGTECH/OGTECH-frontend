@@ -141,11 +141,31 @@ class GpsApiIntegrationTest(unittest.TestCase):
         finally:
             connection.close()
         self.assertEqual(response.status, 200)
-        self.assertIn("DEMO", html)
+        self.assertEqual(html.count("DEMO"), 1)
         self.assertIn("video_app.js", html)
         self.assertIn("공학관", html)
         self.assertIn("일감호", html)
+        self.assertIn("SEOUL TIME", html)
+        self.assertIn("30.0°", html)
+        self.assertIn("55% RH", html)
+        self.assertIn("btnCheckpoint", html)
+        self.assertIn("btnBasecamp", html)
+        self.assertIn("btnNight", html)
         self.assertIn("식수 가능 여부는 판정하지 않습니다", html)
+
+        connection = HTTPConnection("127.0.0.1", self.port, timeout=5.0)
+        try:
+            connection.request("GET", "/video/video_app.js")
+            response = connection.getresponse()
+            video_app = response.read().decode("utf-8")
+        finally:
+            connection.close()
+        self.assertEqual(response.status, 200)
+        self.assertIn('timeZone: "Asia/Seoul"', video_app)
+        self.assertIn('second: "2-digit"', video_app)
+        self.assertIn("speedMps: 4.0", video_app)
+        self.assertIn("function saveCheckpoint()", video_app)
+        self.assertIn("function showBasecampRoute()", video_app)
 
         connection = HTTPConnection("127.0.0.1", self.port, timeout=5.0)
         try:

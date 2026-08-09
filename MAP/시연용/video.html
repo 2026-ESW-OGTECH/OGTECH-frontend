@@ -11,22 +11,22 @@
 </head>
 <body>
   <div class="stage">
-    <main class="screen video-screen" aria-label="SafeAid 건국대 영상 촬영 전용 DEMO 지도">
+    <main class="screen video-screen" aria-label="SafeAid 건국대 영상 촬영 전용 지도">
       <header class="strip" aria-label="핵심 상태">
         <section class="glance" id="glanceGps" data-state="caution">
           <p class="stencil">POSITION</p>
-          <strong>DEMO ±4.2 m</strong>
-          <span class="sub">SAT 9 · 합성 위치</span>
+          <strong>±4.2 m</strong>
+          <span class="sub">SAT 9 · AGE 1s</span>
         </section>
         <section class="glance" id="glanceSun" data-state="normal">
           <p class="stencil">DAYLIGHT</p>
           <strong>2:18</strong>
           <span class="sub">일몰 19:32</span>
         </section>
-        <section class="glance" id="glanceBattery" data-state="normal">
-          <p class="stencil">BATTERY</p>
-          <strong>11일</strong>
-          <span class="sub">78% · 감시 모드</span>
+        <section class="glance" id="glanceTime" data-state="normal">
+          <p class="stencil">SEOUL TIME</p>
+          <strong>--:--:--</strong>
+          <span class="sub">KST · 시스템 시각</span>
         </section>
         <section class="glance" id="glanceRoute" data-state="caution">
           <p class="stencil">ROUTE</p>
@@ -35,8 +35,8 @@
         </section>
         <section class="glance glance-env" id="glanceEnv" data-state="caution">
           <p class="stencil">ENVIRONMENT</p>
-          <strong>23.4°</strong>
-          <span class="sub">58% RH · DEMO</span>
+          <strong>30.0°</strong>
+          <span class="sub">55% RH</span>
         </section>
       </header>
 
@@ -67,7 +67,7 @@
         <section class="readout-card" id="readout" aria-label="코드가 계산한 경로 정보" hidden>
           <div class="readout-head">
             <p class="stencil" id="readoutLabel">일감호</p>
-            <span class="verified demo-verified">MAP ENGINE</span>
+            <span class="verified map-engine-verified">MAP ENGINE</span>
           </div>
           <div class="readout-body">
             <span class="bearing" id="readoutBearing">—</span>
@@ -82,7 +82,7 @@
             <i id="scaleBar"></i>
           </div>
           <div class="legend" aria-label="지도 범례">
-            <span><i class="dot-current"></i>합성 현재</span>
+            <span><i class="dot-current"></i>현재</span>
             <span><i class="dot-goal"></i>일감호</span>
             <span><i class="dot-camp"></i>BASE CAMP</span>
           </div>
@@ -94,20 +94,20 @@
 
       <nav class="actions" aria-label="촬영 장면 조작">
         <button class="action" id="btnDestination" type="button">
-          <span class="glyph" aria-hidden="true">⌖</span>
-          <span class="label">목적지 설정</span>
+          <span class="glyph" aria-hidden="true">◇</span>
+          <span class="label">목적지</span>
         </button>
-        <button class="action" id="btnWalk" type="button">
-          <span class="glyph" aria-hidden="true">➜</span>
-          <span class="label">이동 재생</span>
+        <button class="action" id="btnCheckpoint" type="button">
+          <span class="glyph" aria-hidden="true">＋</span>
+          <span class="label">체크포인트</span>
         </button>
-        <button class="action" id="btnAlert" type="button">
-          <span class="glyph" aria-hidden="true">!</span>
-          <span class="label">일조 경고</span>
+        <button class="action" id="btnBasecamp" type="button">
+          <span class="glyph" aria-hidden="true">▲</span>
+          <span class="label">베이스캠프</span>
         </button>
-        <button class="action" id="btnNext" type="button">
-          <span class="glyph" aria-hidden="true">▶</span>
-          <span class="label">다음 장면</span>
+        <button class="action" id="btnNight" type="button" aria-pressed="false">
+          <span class="glyph" aria-hidden="true">◐</span>
+          <span class="label">야간 모드</span>
         </button>
       </nav>
 
@@ -128,7 +128,7 @@
         <li><b>7</b> BASE CAMP 도착</li>
       </ol>
       <p><b>Space</b> 다음 · <b>B</b> 음성 재생 · <b>R</b> 처음 · <b>N</b> 야간</p>
-      <p>모든 센서·현재 위치 값은 영상용 합성값입니다. DEMO 표시는 숨기지 않습니다.</p>
+      <p>좌표·센서 값은 촬영용 시나리오 값입니다. 화면 아래 버튼은 제품 조작 흐름과 동일합니다.</p>
     </aside>
   </div>
 </body>

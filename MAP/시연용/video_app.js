@@ -1,6 +1,6 @@
 /* SafeAid 건국대학교 시연 영상 전용 MAP — 1024x600
  *
- * 이 화면의 현재 위치·센서·일조 값은 촬영용 합성값이다. 그래서 DEMO 배지를 항상 표시하고
+ * 이 화면의 현재 위치·센서·일조 값은 촬영용 합성값이다. 그래서 지도 제목 옆 DEMO 배지를 표시하고
  * 녹색 LIVE 상태를 쓰지 않는다. 공개 POI와 보행망은 오프라인 파일이며, 경로·방위·거리는
  * 아래 코드와 map_engine이 계산한다. LLM은 좌표나 숫자를 생성하지 않는다.
  */
@@ -37,17 +37,23 @@ const FALLBACK_MAP = {
       [127.0787826, 37.5421170], [127.0786273, 37.5411513],
     ],
   }],
-  basecamp: { lon: 127.0783704, lat: 37.5413134 },
-  destination: { lon: 127.0778118, lat: 37.5409566 },
+  basecamp: { lon: 127.0795165, lat: 37.5417937 },
+  destination: { lon: 127.0774930, lat: 37.5424365 },
   routeOutbound: [
-    [127.0783704, 37.5413134], [127.0782965, 37.5412223],
-    [127.0782162, 37.5411463], [127.0780455, 37.5410483],
-    [127.0778118, 37.5409566],
+    [127.0795165, 37.5417937], [127.0795047, 37.5418378],
+    [127.0791513, 37.5418885], [127.0791567, 37.5419074],
+    [127.0792038, 37.5421151], [127.0792144, 37.5421609],
+    [127.0789017, 37.5422025], [127.0789165, 37.5422808],
+    [127.0785116, 37.5423177], [127.0778637, 37.5423923],
+    [127.0775933, 37.5424271], [127.0774930, 37.5424365],
   ],
   routeReturn: [
-    [127.0778118, 37.5409566], [127.0780455, 37.5410483],
-    [127.0782162, 37.5411463], [127.0782965, 37.5412223],
-    [127.0783704, 37.5413134],
+    [127.0774930, 37.5424365], [127.0775933, 37.5424271],
+    [127.0778637, 37.5423923], [127.0785116, 37.5423177],
+    [127.0789165, 37.5422808], [127.0789017, 37.5422025],
+    [127.0792144, 37.5421609], [127.0792038, 37.5421151],
+    [127.0791567, 37.5419074], [127.0791513, 37.5418885],
+    [127.0795047, 37.5418378], [127.0795165, 37.5417937],
   ],
 };
 
@@ -68,12 +74,12 @@ const SCENES = {
     title: "일감호로 이동",
     current: "basecamp", target: "destination", route: "routeOutbound",
     daylight: 126, sunset: "19:32", routeValue: "이동 중", routeSub: "일감호 방향",
-    alert: null, dialogue: false, toast: "합성 위치 재생 · DEMO",
+    alert: null, dialogue: false, toast: "일감호 경로 이동 재생",
   },
   4: {
     title: "일감호 도착",
     current: "destination", target: null, route: null,
-    daylight: 67, sunset: "19:32", routeValue: "도착", routeSub: "일감호 동쪽 산책로",
+    daylight: 67, sunset: "19:32", routeValue: "도착", routeSub: "일감호 북쪽 산책로",
     alert: null, dialogue: false, toast: "일감호 도착",
   },
   5: {
@@ -87,7 +93,7 @@ const SCENES = {
     title: "BASE CAMP 복귀",
     current: "destination", target: "basecamp", route: "routeReturn",
     daylight: 58, sunset: "19:32", routeValue: "복귀 중", routeSub: "공학관 뒤편",
-    alert: null, dialogue: false, toast: "BASE CAMP 복귀 경로 재생 · DEMO",
+    alert: null, dialogue: false, toast: "BASE CAMP 복귀 경로 재생",
   },
   7: {
     title: "BASE CAMP 도착",
@@ -102,12 +108,13 @@ const state = {
   sceneKey: 1,
   scene: SCENES[1],
   night: false,
+  checkpoint: null,
 };
 
 const walk = {
   playing: false,
   meters: 0,
-  speedMps: 8.0,
+  speedMps: 4.0,
   lastFrame: 0,
   position: null,
   routeKey: null,
@@ -379,11 +386,14 @@ function draw() {
   drawNorthArrow(projector);
   drawMarker(state.map.basecamp, "BASE CAMP", cssVar("--amber"), projector, "triangle");
   if (state.sceneKey >= 2) {
-    drawMarker(state.map.destination, "일감호 도착점", cssVar("--cyan"), projector, "square");
+    drawMarker(state.map.destination, "일감호 목적지", cssVar("--cyan"), projector, "square");
+  }
+  if (state.checkpoint) {
+    drawMarker(state.checkpoint, "체크포인트", cssVar("--cyan"), projector, "square");
   }
   const current = currentPoint();
   drawAccuracyRing(current, projector);
-  drawMarker(current, "DEMO 현재", cssVar("--amber"), projector, "circle");
+  drawMarker(current, "현재", cssVar("--amber"), projector, "circle");
   updateScaleBar(projector);
 }
 
@@ -403,6 +413,30 @@ function setGlance(id, stateName, value, sub) {
   element.dataset.state = stateName;
   element.querySelector("strong").textContent = value;
   element.querySelector(".sub").textContent = sub;
+}
+
+const seoulClockFormatter = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+function updateSeoulClock() {
+  const parts = {};
+  seoulClockFormatter.formatToParts(new Date()).forEach((part) => {
+    if (part.type !== "literal") parts[part.type] = part.value;
+  });
+  setGlance(
+    "#glanceTime",
+    "normal",
+    `${parts.hour}:${parts.minute}:${parts.second}`,
+    `${parts.year}.${parts.month}.${parts.day} KST`
+  );
 }
 
 function formatDaylight(minutes) {
@@ -426,21 +460,21 @@ function showToast(message, duration) {
 function render() {
   const scene = state.scene;
   const current = currentPoint();
-  setGlance("#glanceGps", "caution", "DEMO ±4.2 m", "SAT 9 · 합성 위치");
+  setGlance("#glanceGps", "caution", "±4.2 m", "SAT 9 · AGE 1s");
   setGlance(
     "#glanceSun",
     scene.daylight <= 60 ? "warn" : "normal",
     formatDaylight(scene.daylight),
     `일몰 ${scene.sunset}`
   );
-  setGlance("#glanceBattery", "caution", "11일", "78% · DEMO");
+  updateSeoulClock();
   setGlance(
     "#glanceRoute",
     scene.alert ? "warn" : "caution",
     scene.routeValue,
     scene.routeSub
   );
-  setGlance("#glanceEnv", "caution", "23.4°", "58% RH · DEMO");
+  setGlance("#glanceEnv", "caution", "30.0°", "55% RH");
 
   const alertBox = document.querySelector("#alert");
   if (scene.alert) {
@@ -551,7 +585,8 @@ function setScene(key, options) {
   const withAudio = !options || options.audio !== false;
   if (sceneKey === 2 && withAudio) playFixedAudio("destination");
   if (sceneKey === 5 && withAudio) playFixedAudio("warning");
-  if (sceneKey === 3 || sceneKey === 6) {
+  const autoWalk = !options || options.autoWalk !== false;
+  if ((sceneKey === 3 || sceneKey === 6) && autoWalk) {
     walkStartTimer = window.setTimeout(startWalk, 450);
   }
 }
@@ -563,15 +598,57 @@ function nextScene() {
 function setNight(on) {
   state.night = on;
   document.documentElement.dataset.night = on ? "on" : "off";
+  document.querySelector("#btnNight").setAttribute("aria-pressed", String(on));
   render();
 }
 
+function saveCheckpoint() {
+  const point = currentPoint();
+  state.checkpoint = { lon: point.lon, lat: point.lat };
+  const label = document.querySelector("#btnCheckpoint .label");
+  label.textContent = "저장됨";
+  showToast("현재 위치를 체크포인트로 저장했습니다.", 2400);
+  window.setTimeout(() => { label.textContent = "체크포인트"; }, 1400);
+  render();
+}
+
+function routeFromCurrentToBasecamp(from) {
+  const reference = state.map.routeReturn;
+  let nearestIndex = 0;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  reference.forEach((point, index) => {
+    const distance = distanceMeters(from, { lon: point[0], lat: point[1] });
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = index;
+    }
+  });
+  const remaining = reference.slice(nearestIndex + 1);
+  return [[from.lon, from.lat], ...remaining];
+}
+
+function showBasecampRoute() {
+  const from = currentPoint();
+  window.clearTimeout(walkStartTimer);
+  stopWalk(false);
+  state.map.returnStart = { lon: from.lon, lat: from.lat };
+  state.map.routeToBasecamp = routeFromCurrentToBasecamp(from);
+  state.sceneKey = 6;
+  state.scene = {
+    ...SCENES[6],
+    current: "returnStart",
+    route: "routeToBasecamp",
+    routeValue: "BASE CAMP",
+    routeSub: "복귀 경로 표시",
+  };
+  render();
+  showToast("BASE CAMP 복귀 경로를 표시합니다.", 2600);
+}
+
 document.querySelector("#btnDestination").addEventListener("click", () => setScene(2));
-document.querySelector("#btnWalk").addEventListener("click", () => {
-  setScene(state.sceneKey >= 5 ? 6 : 3);
-});
-document.querySelector("#btnAlert").addEventListener("click", () => setScene(5));
-document.querySelector("#btnNext").addEventListener("click", nextScene);
+document.querySelector("#btnCheckpoint").addEventListener("click", saveCheckpoint);
+document.querySelector("#btnBasecamp").addEventListener("click", showBasecampRoute);
+document.querySelector("#btnNight").addEventListener("click", () => setNight(!state.night));
 
 window.addEventListener("keydown", (event) => {
   if (/^[1-7]$/.test(event.key)) {
@@ -585,6 +662,8 @@ window.addEventListener("keydown", (event) => {
     setScene(1, { audio: false });
   } else if (event.key === "n" || event.key === "N") {
     setNight(!state.night);
+  } else if (event.key === "c" || event.key === "C") {
+    saveCheckpoint();
   } else if (event.key === "h" || event.key === "H") {
     const panel = document.querySelector("#director");
     panel.hidden = !panel.hidden;
@@ -594,3 +673,4 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("resize", draw);
 setNight(false);
 setScene(1, { audio: false });
+window.setInterval(updateSeoulClock, 1000);

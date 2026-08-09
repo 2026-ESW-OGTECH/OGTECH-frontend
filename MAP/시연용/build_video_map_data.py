@@ -91,11 +91,13 @@ ENGINEERING_BUILDING = [
     (127.0787826, 37.5421170),
 ]
 
-# 공학관 서쪽 뒤편과 일감호 동쪽 산책로를 요청점으로 잡는다. 실제 그리기·계산은 보행망에 스냅된다.
-BASECAMP_REQUEST = {"lat": 37.54155, "lon": 127.07865}
-DESTINATION_REQUEST = {"lat": 37.54118, "lon": 127.07745}
 ENGINEERING_CENTER = {"lat": 37.5415909, "lon": 127.0794009}
 ILGAM_CENTER = {"lat": 37.5408227, "lon": 127.0765562}
+
+# 첨부 이미지의 빨간 표시를 따른다. BASE CAMP는 공학관 쪽, 목적지는 일감호 북쪽 산책로다.
+# 실제 경로 시작·끝은 안전하게 보행망에 스냅한 좌표를 사용한다.
+BASECAMP_REQUEST = ENGINEERING_CENTER
+DESTINATION_REQUEST = {"lat": 37.54215, "lon": 127.07736}
 
 
 def round_pairs(pairs):
