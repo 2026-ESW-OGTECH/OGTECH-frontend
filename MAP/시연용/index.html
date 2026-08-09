@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=1024, initial-scale=1, maximum-scale=1">
     <meta name="theme-color" content="#070a0a">
-    <title>SafeAid 시연용 지도 화면 — 1024×600</title>
-    <meta name="description" content="7인치 1024x600 키오스크용 시연 화면. 오프라인 지도, 글랜서블 4개, 코드 계산 방위·거리">
+    <title>SafeAid 오프라인 항법 — 1024×600</title>
+    <meta name="description" content="7인치 1024x600 키오스크용 실시간 센서·오프라인 항법 화면">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -35,7 +35,11 @@
             <strong id="trailValue">경로 위</strong>
             <span class="sub" id="trailSub">이탈 0 m</span>
           </div>
-          <div class="demo-badge" title="모의 값이 섞여 있으면 숨기지 않습니다">DEMO</div>
+          <div class="glance glance-env" id="glanceEnv">
+            <span class="stencil">ENVIRONMENT</span>
+            <strong id="envValue">—</strong>
+            <span class="sub" id="envSub">RH — · CO —</span>
+          </div>
         </header>
 
         <!-- 지도 -->
@@ -52,7 +56,10 @@
           <div class="map-topline">
             <span id="mapName">건국대 언덕 · 보행로</span>
             <span class="tag-offline">OFFLINE · WGS84</span>
+            <span class="tag-demo" id="demoChip" hidden>DEMO</span>
           </div>
+
+          <div class="sun-details" id="sunDetails">일출 — · 일몰 — · 귀환 권고 —</div>
 
           <!-- 방위·거리 판독. 지도 엔진(코드) 계산값이며 LLM이 만들지 않습니다 -->
           <div class="readout-card" id="readout">
@@ -75,6 +82,8 @@
               <span><i class="dot-camp"></i>베이스캠프</span>
             </div>
           </div>
+
+          <div class="status-toast" id="statusToast" role="status" hidden></div>
         </main>
 
         <!-- 하단 동작 바: 96px = 14.4mm. 장갑 조작 기준 충족 -->
@@ -98,24 +107,10 @@
         </nav>
       </div>
 
-      <!-- 촬영 보조. 화면 밖이며 장치 UI가 아닙니다 -->
-      <div class="director" id="director">
-        <span class="stencil">촬영 장면 전환 — 숫자키</span>
-        <ol>
-          <li><b>1</b> 기본 · 현재 위치와 정확도</li>
-          <li><b>2</b> 목적지 지정 · 경로 표시 <em>컷 3</em></li>
-          <li><b>3</b> 일조 시간 경고 <em>컷 4</em></li>
-          <li><b>4</b> 베이스캠프 역추적 <em>컷 5</em></li>
-          <li><b>5</b> 트레일 이탈 경고</li>
-          <li><b>6</b> GPS 미수신 · 마지막 좌표</li>
-          <li><b>W</b> 보행 재생 시작·정지 <em>합성 궤적</em></li>
-          <li><b>N</b> 야간 모드 · <b>H</b> 이 안내 숨기기</li>
-        </ol>
-      </div>
     </div>
 
     <!-- konkuk_walk.graphml 을 미리 변환해 구운 실제 보행망. build_map_data.py 가 만듭니다 -->
     <script src="konkuk_map.js" defer></script>
-    <script src="app.js" defer></script>
+    <script src="live_app.js" defer></script>
   </body>
 </html>

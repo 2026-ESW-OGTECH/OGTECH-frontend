@@ -1,5 +1,11 @@
 # MAP 폴더 사용법 — 지도 화면 실행
 
+> **2026-08-09 변경:** 아래의 파일 직접 실행·숫자키 촬영 장면 설명은 이전 모의 화면 기록이다.
+> 실제 제품 화면은 `python app.py --gps-mode stm32 ...` 실행 후
+> `http://127.0.0.1:8790/product/`에서 연다. 최신 배선·실행 절차는
+> [STM32_JETSON_SETUP.md](STM32_JETSON_SETUP.md), 화면 설명은
+> [시연용/README.md](시연용/README.md)를 우선한다.
+
 Jetson에 SSH로 접속해서 쓰는 절차입니다. 노트북에서 `ssh kit@<젯슨IP>` 로 붙은 뒤 그대로 따라 하면 됩니다.
 
 ## 표기 약속

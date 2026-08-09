@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from http.client import HTTPConnection
 import json
+from pathlib import Path
+import tempfile
 import threading
 import time
 import unittest
@@ -13,10 +15,12 @@ from app import build_server
 
 class GpsApiIntegrationTest(unittest.TestCase):
     def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
         self.server = build_server(
             "127.0.0.1",
             0,
             gps_configuration={"mode": "replay"},
+            waypoint_path=Path(self.temporary.name) / "waypoints.json",
         )
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -26,6 +30,7 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=2.0)
+        self.temporary.cleanup()
 
     def request(
         self,
@@ -89,6 +94,43 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(stopped["mode"], "off")
         self.assertFalse(stopped["fix"])
+
+    def test_product_screen_and_waypoint_api_use_integrated_device_state(self) -> None:
+        deadline = time.monotonic() + 2.0
+        device: dict[str, object] = {}
+        while time.monotonic() < deadline:
+            status, device = self.request("GET", "/api/device")
+            gps = device.get("gps")
+            if isinstance(gps, dict) and gps.get("fix") is True:
+                break
+            time.sleep(0.02)
+        self.assertEqual(status, 200)
+        self.assertIn("environment", device)
+        self.assertIn("sun", device)
+        self.assertIn("navigation", device)
+        self.assertTrue(device["demo"])
+
+        status, saved = self.request(
+            "POST",
+            "/api/waypoints",
+            {"action": "save_current", "kind": "basecamp"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(saved["waypoints"]["selected_target"], "basecamp")
+        self.assertTrue(saved["contract"]["map_route_bearing_distance_computed_by_code"])
+        self.assertFalse(saved["contract"]["llm_may_generate_coordinates"])
+
+        connection = HTTPConnection("127.0.0.1", self.port, timeout=5.0)
+        try:
+            connection.request("GET", "/product/")
+            response = connection.getresponse()
+            html = response.read().decode("utf-8")
+        finally:
+            connection.close()
+        self.assertEqual(response.status, 200)
+        self.assertIn("ENVIRONMENT", html)
+        self.assertNotIn("demo-badge", html)
+        self.assertIn("live_app.js", html)
 
 
 if __name__ == "__main__":

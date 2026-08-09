@@ -29,15 +29,18 @@ from map_engine import (
     load_runtime,
 )
 from gps_service import GpsInputError, GpsService
+from navigation_service import NavigationInputError, NavigationService
 
 
 ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = ROOT / "static"
+PRODUCT_ROOT = ROOT / "시연용"
 RUNTIME_ROOT = ROOT / "runtime"
 UPLOAD_ROOT = RUNTIME_ROOT / "uploads"
 ACTIVE_MAP = RUNTIME_ROOT / "active_map.json"
 SAMPLE_MAP = ROOT / "sample_data" / "konkuk_walk.graphml"
 GPS_REPLAY = ROOT / "sample_data" / "air530_replay.nmea"
+WAYPOINTS_PATH = RUNTIME_ROOT / "waypoints.json"
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 MAX_JSON_BYTES = 64 * 1024
 ALLOWED_SUFFIXES = {".graphml", ".osm", ".xml"}
@@ -78,7 +81,7 @@ class MapRegistry:
         result = offline_map.overview()
         if offline_map.source_name == SAMPLE_MAP.name:
             result["suggested_points"] = SAMPLE_POINTS
-        result["demo"] = True
+        result["demo"] = offline_map.source_name == SAMPLE_MAP.name
         return result
 
     def overview(self) -> dict[str, Any]:
@@ -196,6 +199,25 @@ class MapRegistry:
             },
         }
 
+    def trail_offset_m(self, lat: float, lon: float) -> float:
+        with self._lock:
+            return self._map.trail_offset_m(lat, lon)
+
+    def route_between(
+        self,
+        start_lat: float,
+        start_lon: float,
+        goal_lat: float,
+        goal_lon: float,
+    ) -> Any:
+        with self._lock:
+            return self._map.find_route(
+                start_lat=start_lat,
+                start_lon=start_lon,
+                goal_lat=goal_lat,
+                goal_lon=goal_lon,
+            )
+
 
 def _safe_filename(value: str) -> str:
     basename = Path(unquote(value)).name
@@ -230,6 +252,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
     registry: MapRegistry
     gps: GpsService
+    navigation: NavigationService
     protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:  # noqa: N802 - 표준 라이브러리 규약
@@ -251,6 +274,15 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/gps/events":
             self._gps_events()
+            return
+        if path == "/api/device":
+            self._json(HTTPStatus.OK, self.navigation.snapshot())
+            return
+        if path == "/api/device/events":
+            self._device_events()
+            return
+        if path == "/api/waypoints":
+            self._json(HTTPStatus.OK, self.navigation.waypoints.snapshot())
             return
         if path == "/":
             path = "/index.html"
@@ -283,8 +315,18 @@ class AppHandler(BaseHTTPRequestHandler):
                 payload = self._read_json()
                 self._json(HTTPStatus.OK, self.registry.route(payload))
                 return
+            if path == "/api/waypoints":
+                payload = self._read_json()
+                self._json(HTTPStatus.OK, self.navigation.apply_waypoint(payload))
+                return
             self._json(HTTPStatus.NOT_FOUND, {"error": "API 경로가 없습니다"})
-        except (GpsInputError, MapValidationError, RouteNotFound, SnapOutOfBounds) as exc:
+        except (
+            GpsInputError,
+            NavigationInputError,
+            MapValidationError,
+            RouteNotFound,
+            SnapOutOfBounds,
+        ) as exc:
             self._json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)})
         except Exception as exc:
             print(f"요청 처리 실패: {exc}")
@@ -354,6 +396,13 @@ class AppHandler(BaseHTTPRequestHandler):
             "/index.html": STATIC_ROOT / "index.html",
             "/app.js": STATIC_ROOT / "app.js",
             "/styles.css": STATIC_ROOT / "styles.css",
+            "/product": PRODUCT_ROOT / "index.html",
+            "/product/": PRODUCT_ROOT / "index.html",
+            "/product/index.html": PRODUCT_ROOT / "index.html",
+            "/product/styles.css": PRODUCT_ROOT / "styles.css",
+            "/product/live_app.js": PRODUCT_ROOT / "live_app.js",
+            "/product/app.js": PRODUCT_ROOT / "app.js",
+            "/product/konkuk_map.js": PRODUCT_ROOT / "konkuk_map.js",
         }
         target = mapping.get(request_path)
         if not target or not target.is_file():
@@ -385,6 +434,32 @@ class AppHandler(BaseHTTPRequestHandler):
                 else:
                     encoded = json.dumps(
                         payload, ensure_ascii=False, separators=(",", ":")
+                    ).encode("utf-8")
+                    self.wfile.write(b"data: " + encoded + b"\n\n")
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+        finally:
+            self.gps.unsubscribe(subscriber)
+
+    def _device_events(self) -> None:
+        subscriber = self.gps.subscribe()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        try:
+            while True:
+                try:
+                    subscriber.get(timeout=10.0)
+                except Empty:
+                    self.wfile.write(b": keep-alive\n\n")
+                else:
+                    encoded = json.dumps(
+                        self.navigation.snapshot(),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
                     ).encode("utf-8")
                     self.wfile.write(b"data: " + encoded + b"\n\n")
                 self.wfile.flush()
@@ -425,6 +500,7 @@ def build_server(
     host: str,
     port: int,
     gps_configuration: dict[str, Any] | None = None,
+    waypoint_path: str | Path | None = None,
 ) -> ThreadingHTTPServer:
     registry = MapRegistry()
     gps = GpsService(GPS_REPLAY)
@@ -434,10 +510,15 @@ def build_server(
         port=str(configuration.get("port", "")),
         baud=configuration.get("baud"),
     )
+    navigation = NavigationService(
+        registry,
+        gps,
+        waypoint_path or WAYPOINTS_PATH,
+    )
     handler = type(
         "ConfiguredAppHandler",
         (AppHandler,),
-        {"registry": registry, "gps": gps},
+        {"registry": registry, "gps": gps, "navigation": navigation},
     )
     return GpsAppServer((host, port), handler, gps)
 
@@ -467,7 +548,8 @@ def main() -> None:
             "baud": args.gps_baud or None,
         },
     )
-    print(f"지도 검증 앱: http://{args.host}:{args.port}")
+    print(f"지도 검증 도구: http://{args.host}:{args.port}/")
+    print(f"SafeAid 제품 화면: http://{args.host}:{args.port}/product/")
     print("종료: Ctrl+C")
     try:
         server.serve_forever()
