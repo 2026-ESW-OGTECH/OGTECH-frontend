@@ -7,6 +7,8 @@
 
 "use strict";
 
+const VIDEO_SUNRISE = "05:34";
+
 const FALLBACK_MAP = {
   name: "건국대학교 · 공학관 ↔ 일감호",
   attribution: "© OpenStreetMap contributors · ODbL 1.0",
@@ -86,7 +88,7 @@ const SCENES = {
     title: "1시간 일조 경고",
     current: "destination", target: "basecamp", route: "routeReturn",
     daylight: 60, sunset: "19:32", routeValue: "복귀 필요", routeSub: "BASE CAMP 경로",
-    alert: "해가 곧 집니다. 안전을 위해 베이스캠프로 돌아가는 것을 권장합니다.",
+    alert: "해가 지기까지 1시간 남았습니다. base캠프로 돌아가세요.",
     arrival: null, toast: null,
   },
   6: {
@@ -535,10 +537,12 @@ function updateSeoulClock() {
   );
 }
 
-function formatDaylight(minutes) {
+function formatDaylightRemaining(minutes) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  return hours > 0 ? `${hours}:${String(rest).padStart(2, "0")}` : `${rest}분`;
+  if (hours > 0 && rest === 0) return `${hours}시간 남음`;
+  if (hours > 0) return `${hours}시간 ${rest}분 남음`;
+  return `${rest}분 남음`;
 }
 
 function showToast(message, duration) {
@@ -559,8 +563,8 @@ function render() {
   setGlance("#glanceGps", "caution", "±4.2 m", "SAT 9 · AGE 1s");
   setGlance(
     "#glanceSun",
-    scene.daylight <= 60 ? "warn" : "normal",
-    formatDaylight(scene.daylight),
+    scene.alert ? "warn" : "normal",
+    scene.alert ? formatDaylightRemaining(scene.daylight) : `일출 ${VIDEO_SUNRISE}`,
     `일몰 ${scene.sunset}`
   );
   updateSeoulClock();
@@ -676,7 +680,7 @@ function playFixedAudio(kind) {
     },
     warning: {
       selector: "#warningAudio",
-      text: "해가 곧 집니다. 안전을 위해 베이스캠프로 돌아가는 것을 권장합니다.",
+      text: "해가 지기까지 1시간 남았습니다. base캠프로 돌아가세요.",
     },
     daylightDetail: {
       selector: "#daylightDetailAudio",
