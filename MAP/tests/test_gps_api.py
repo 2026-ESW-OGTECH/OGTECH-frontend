@@ -179,7 +179,7 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertIn("베이스캠프 복귀 경로가 설정되었습니다.", video_app)
         self.assertIn("야간 모드가 활성화되었습니다.", video_app)
         self.assertIn("현재 위치 기준으로 약 한 시간 뒤에 해가 집니다.", video_app)
-        self.assertIn("해가 지기까지 1시간 남았습니다. base캠프로 돌아가세요.", video_app)
+        self.assertIn("해가 지기까지 1시간 남았습니다. Base Camp로 돌아가세요.", video_app)
         self.assertIn('const VIDEO_SUNRISE = "05:34"', video_app)
         self.assertIn("function formatDaylightRemaining(minutes)", video_app)
         self.assertIn("function setDaylightGlance(scene)", video_app)

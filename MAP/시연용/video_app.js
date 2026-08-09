@@ -88,7 +88,7 @@ const SCENES = {
     title: "1시간 일조 경고",
     current: "destination", target: "basecamp", route: "routeReturn",
     daylight: 60, sunset: "19:32", routeValue: "복귀 필요", routeSub: "BASE CAMP 경로",
-    alert: "해가 지기까지 1시간 남았습니다. base캠프로 돌아가세요.",
+    alert: "해가 지기까지 1시간 남았습니다. Base Camp로 돌아가세요.",
     arrival: null, toast: null,
   },
   6: {
@@ -699,7 +699,7 @@ function playFixedAudio(kind) {
     },
     warning: {
       selector: "#warningAudio",
-      text: "해가 지기까지 1시간 남았습니다. base캠프로 돌아가세요.",
+      text: "해가 지기까지 1시간 남았습니다. Base Camp로 돌아가세요.",
     },
     daylightDetail: {
       selector: "#daylightDetailAudio",
