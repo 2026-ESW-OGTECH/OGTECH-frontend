@@ -20,7 +20,13 @@
 }
 
 .video-screen .glance .sub { white-space: nowrap; }
-.video-screen .glance-env strong { font-size: 26px; }
+.video-screen .glance-coordinate strong,
+.video-screen .glance-coordinate .sub {
+  font-size: 21px;
+  font-weight: 800;
+  color: var(--amber);
+}
+.video-screen .glance-env strong { font-size: 20px; }
 
 .video-screen .map-canvas.destination-selecting { cursor: crosshair; }
 

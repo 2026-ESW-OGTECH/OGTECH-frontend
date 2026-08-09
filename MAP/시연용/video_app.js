@@ -1,6 +1,6 @@
 /* SafeAid 건국대학교 시연 영상 전용 MAP — 1024x600
  *
- * 이 화면의 현재 위치·센서·일조 값은 촬영용 합성값이다. 그래서 현재 좌표 칸에 DEMO 배지를 표시하고
+ * 이 화면의 현재 위치·센서·일조 값은 촬영용 합성값이다. 그래서 CO 농도 칸에 DEMO 배지를 표시하고
  * 녹색 LIVE 상태를 쓰지 않는다. 공개 POI와 보행망은 오프라인 파일이며, 경로·방위·거리는
  * 아래 코드와 map_engine이 계산한다. LLM은 좌표나 숫자를 생성하지 않는다.
  */
@@ -117,7 +117,7 @@ const state = {
 const walk = {
   playing: false,
   meters: 0,
-  speedMps: 4.0,
+  speedMps: 1.4,
   lastFrame: 0,
   position: null,
   routeKey: null,
@@ -543,6 +543,13 @@ const seoulClockFormatter = new Intl.DateTimeFormat("ko-KR", {
   hourCycle: "h23",
 });
 
+const etaTimeFormatter = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
 function updateSeoulClock() {
   const parts = {};
   seoulClockFormatter.formatToParts(new Date()).forEach((part) => {
@@ -659,13 +666,8 @@ function render() {
   setDaylightGlance(scene);
   updateSeoulClock();
   setCurrentCoordinateGlance(current);
-  setGlance(
-    "#glanceRoute",
-    scene.alert ? "warn" : "caution",
-    scene.routeValue,
-    scene.routeSub
-  );
-  setGlance("#glanceEnv", "caution", "30.0°", "55% RH");
+  setGlance("#glanceEnv", "caution", "30.0°C (86.0°F)", "55% RH");
+  setGlance("#glanceCo", "caution", "0 ppm", "CO 전용 · DEMO");
 
   const alertBox = document.querySelector("#alert");
   if (scene.alert) {
@@ -698,11 +700,14 @@ function render() {
     const remaining = walk.routeKey === scene.route
       ? Math.max(0, total - walk.meters)
       : total;
+    const remainingSeconds = remaining / walk.speedMps;
+    const remainingMinutes = Math.max(1, Math.ceil(remainingSeconds / 60));
+    const arrivalTime = new Date(Date.now() + remainingSeconds * 1000);
     document.querySelector("#readoutDistance").textContent = `${Math.round(remaining)} m`;
-    document.querySelector("#readoutCurrentCoordinate").textContent =
-      `현재 위도 ${formatCoordinate(current.lat)} · 경도 ${formatCoordinate(current.lon)}`;
-    document.querySelector("#readoutTargetCoordinate").textContent =
-      `목표 위도 ${formatCoordinate(target.lat)} · 경도 ${formatCoordinate(target.lon)}`;
+    document.querySelector("#readoutEta").textContent =
+      `예상 도착 ${etaTimeFormatter.format(arrivalTime)} KST`;
+    document.querySelector("#readoutRemainingTime").textContent =
+      `약 ${remainingMinutes}분 남음`;
   }
 
   document.querySelector("#mapAttribution").textContent = state.map.attribution;
