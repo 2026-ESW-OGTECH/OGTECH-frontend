@@ -123,6 +123,25 @@ const walk = {
   routeKey: null,
 };
 
+// 촬영용 전체 시퀀스의 장면 간 정지 시간이다. 이동 구간은 실제 경로 길이와
+// speedMps로 끝날 때까지 재생하므로 여기에는 넣지 않는다.
+const AUTO_DEMO_DELAYS_MS = Object.freeze({
+  basecampRegistered: 3000,
+  destinationFallback: 9500,
+  arrivalFallback: 3600,
+  warningFallback: 6200,
+  returnRouteShown: 3000,
+  basecampArrival: 2500,
+  nightMode: 2800,
+});
+
+const autoDemo = {
+  active: false,
+  runId: 0,
+  timers: new Set(),
+  walkResolver: null,
+};
+
 const canvas = document.querySelector("#mapCanvas");
 const context = canvas.getContext("2d");
 let toastTimer = 0;
@@ -581,6 +600,52 @@ function showToast(message, duration) {
   toastTimer = window.setTimeout(() => { toast.hidden = true; }, duration || 2600);
 }
 
+function audioDurationMs(selector, fallback) {
+  const audio = document.querySelector(selector);
+  const duration = audio ? audio.duration : Number.NaN;
+  return Number.isFinite(duration) && duration > 0
+    ? Math.ceil((duration + 0.45) * 1000)
+    : fallback;
+}
+
+function cancelAutoDemo() {
+  autoDemo.runId += 1;
+  autoDemo.active = false;
+  autoDemo.timers.forEach((timer) => window.clearTimeout(timer));
+  autoDemo.timers.clear();
+  if (autoDemo.walkResolver) {
+    const resolve = autoDemo.walkResolver;
+    autoDemo.walkResolver = null;
+    resolve(false);
+  }
+}
+
+function waitForAutoDemo(runId, milliseconds) {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      autoDemo.timers.delete(timer);
+      resolve(autoDemo.active && autoDemo.runId === runId);
+    }, milliseconds);
+    autoDemo.timers.add(timer);
+  });
+}
+
+function waitForAutoWalk(runId) {
+  return new Promise((resolve) => {
+    autoDemo.walkResolver = (reachedDestination) => {
+      autoDemo.walkResolver = null;
+      resolve(reachedDestination && autoDemo.active && autoDemo.runId === runId);
+    };
+  });
+}
+
+function completeAutoWalk(reachedDestination) {
+  if (!autoDemo.walkResolver) return;
+  const resolve = autoDemo.walkResolver;
+  autoDemo.walkResolver = null;
+  resolve(reachedDestination);
+}
+
 function render() {
   const scene = state.scene;
   const current = currentPoint();
@@ -653,6 +718,7 @@ function walkFrame(timestamp) {
     walk.playing = false;
     walk.lastFrame = 0;
     setScene(state.sceneKey === 3 ? 4 : 7);
+    completeAutoWalk(true);
     return;
   }
   render();
@@ -757,6 +823,7 @@ function setDestinationSelection(on) {
 }
 
 function selectMapDestination(event) {
+  cancelAutoDemo();
   if (!state.destinationSelecting) return;
   const rect = canvas.getBoundingClientRect();
   const requested = projection().fromScreen(event.clientX - rect.left, event.clientY - rect.top);
@@ -825,6 +892,51 @@ function showBasecampRoute() {
   showToast("베이스캠프 복귀 경로가 설정되었습니다.", 2800);
 }
 
+// `A` 또는 auto_demo_ssh.sh가 시작하는 촬영용 원테이크 시퀀스.
+// 장면 3·6은 경로 길이를 코드로 계산해 마커가 끝에 도달한 뒤 다음 장면으로 넘어간다.
+async function startAutoDemo() {
+  cancelAutoDemo();
+  const runId = autoDemo.runId;
+  autoDemo.active = true;
+
+  setNight(false, false);
+  setScene(1, { audio: false, autoWalk: false });
+  handleBasecampButton();
+  if (!await waitForAutoDemo(runId, AUTO_DEMO_DELAYS_MS.basecampRegistered)) return;
+
+  setScene(2, { autoWalk: false });
+  if (!await waitForAutoDemo(
+    runId,
+    audioDurationMs("#destinationAudio", AUTO_DEMO_DELAYS_MS.destinationFallback)
+  )) return;
+
+  const outboundCompleted = waitForAutoWalk(runId);
+  setScene(3);
+  if (!await outboundCompleted) return;
+  if (!await waitForAutoDemo(
+    runId,
+    audioDurationMs("#arrivalAudio", AUTO_DEMO_DELAYS_MS.arrivalFallback)
+  )) return;
+
+  setScene(5, { autoWalk: false });
+  if (!await waitForAutoDemo(
+    runId,
+    audioDurationMs("#warningAudio", AUTO_DEMO_DELAYS_MS.warningFallback)
+  )) return;
+
+  const returnCompleted = waitForAutoWalk(runId);
+  showBasecampRoute();
+  if (!await waitForAutoDemo(runId, AUTO_DEMO_DELAYS_MS.returnRouteShown)) return;
+  if (!autoDemo.active || autoDemo.runId !== runId) return;
+  startWalk();
+  if (!await returnCompleted) return;
+  if (!await waitForAutoDemo(runId, AUTO_DEMO_DELAYS_MS.basecampArrival)) return;
+
+  setNight(true, true);
+  await waitForAutoDemo(runId, AUTO_DEMO_DELAYS_MS.nightMode);
+  if (autoDemo.runId === runId) autoDemo.active = false;
+}
+
 function handleBasecampButton() {
   if (state.sceneKey === 1) {
     const current = currentPoint();
@@ -837,20 +949,36 @@ function handleBasecampButton() {
 }
 
 document.querySelector("#btnDestination").addEventListener("click", () => {
+  cancelAutoDemo();
   setDestinationSelection(!state.destinationSelecting);
 });
-document.querySelector("#btnCheckpoint").addEventListener("click", saveCheckpoint);
-document.querySelector("#btnBasecamp").addEventListener("click", handleBasecampButton);
-document.querySelector("#btnNight").addEventListener("click", () => setNight(!state.night, true));
+document.querySelector("#btnCheckpoint").addEventListener("click", () => {
+  cancelAutoDemo();
+  saveCheckpoint();
+});
+document.querySelector("#btnBasecamp").addEventListener("click", () => {
+  cancelAutoDemo();
+  handleBasecampButton();
+});
+document.querySelector("#btnNight").addEventListener("click", () => {
+  cancelAutoDemo();
+  setNight(!state.night, true);
+});
 canvas.addEventListener("click", selectMapDestination);
 
 window.addEventListener("keydown", (event) => {
-  if (/^[1-7]$/.test(event.key)) {
+  if (event.key === "a" || event.key === "A") {
+    event.preventDefault();
+    startAutoDemo();
+  } else if (/^[1-7]$/.test(event.key)) {
+    cancelAutoDemo();
     setScene(Number(event.key));
   } else if (event.code === "Space") {
     event.preventDefault();
+    cancelAutoDemo();
     nextScene();
   } else if (event.key === "b" || event.key === "B") {
+    cancelAutoDemo();
     const audioKind = state.sceneKey === 5
       ? "warning"
       : state.sceneKey === 4
@@ -858,12 +986,16 @@ window.addEventListener("keydown", (event) => {
         : "destination";
     playFixedAudio(audioKind);
   } else if (event.key === "t" || event.key === "T") {
+    cancelAutoDemo();
     playFixedAudio("daylightDetail");
   } else if (event.key === "r" || event.key === "R") {
+    cancelAutoDemo();
     setScene(1, { audio: false });
   } else if (event.key === "n" || event.key === "N") {
+    cancelAutoDemo();
     setNight(!state.night, true);
   } else if (event.key === "c" || event.key === "C") {
+    cancelAutoDemo();
     saveCheckpoint();
   } else if (event.key === "h" || event.key === "H") {
     const panel = document.querySelector("#director");
