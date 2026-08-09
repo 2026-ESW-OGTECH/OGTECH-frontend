@@ -18,10 +18,13 @@
           <strong>±4.2 m</strong>
           <span class="sub">SAT 9 · AGE 1s</span>
         </section>
-        <section class="glance" id="glanceSun" data-state="normal">
+        <section class="glance glance-sun" id="glanceSun" data-state="normal">
           <p class="stencil">DAYLIGHT</p>
-          <strong>일출 05:34</strong>
-          <span class="sub">일몰 19:32</span>
+          <strong class="sun-times" id="daylightValue">
+            <span class="sunrise">일출 05:34</span>
+            <span class="sunset">일몰 19:32</span>
+          </strong>
+          <span class="sub" id="daylightSub" hidden></span>
         </section>
         <section class="glance" id="glanceTime" data-state="normal">
           <p class="stencil">SEOUL TIME</p>

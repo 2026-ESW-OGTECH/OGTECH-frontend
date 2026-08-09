@@ -69,13 +69,13 @@ const SCENES = {
   2: {
     title: "음성 요청 → 일감호 설정",
     current: "basecamp", target: "destination", route: "routeOutbound",
-    daylight: 132, sunset: "19:32", routeValue: "일감호", routeSub: "목적지 설정됨",
+    daylight: 132, sunset: "19:32", routeValue: "일감호", routeSub: "목적지",
     alert: null, arrival: null, toast: null,
   },
   3: {
     title: "일감호로 이동",
     current: "basecamp", target: "destination", route: "routeOutbound",
-    daylight: 126, sunset: "19:32", routeValue: "이동 중", routeSub: "일감호 방향",
+    daylight: 126, sunset: "19:32", routeValue: "이동 중", routeSub: "목적지",
     alert: null, arrival: null, toast: null,
   },
   4: {
@@ -94,7 +94,7 @@ const SCENES = {
   6: {
     title: "BASE CAMP 복귀",
     current: "destination", target: "basecamp", route: "routeReturn",
-    daylight: 58, sunset: "19:32", routeValue: "복귀 중", routeSub: "공학관 뒤편",
+    daylight: 58, sunset: "19:32", routeValue: "복귀 중", routeSub: "BASE CAMP",
     alert: null, arrival: null, toast: null,
   },
   7: {
@@ -481,10 +481,10 @@ function draw() {
   drawMarker(state.map.basecamp, "BASE CAMP", cssVar("--amber"), projector, "triangle");
   const sceneTarget = state.scene.target ? state.map[state.scene.target] : null;
   if (sceneTarget && state.scene.target !== "basecamp") {
-    const targetLabel = state.scene.target === "destination" ? "일감호 목적지" : "목적지";
+    const targetLabel = "목적지";
     drawMarker(sceneTarget, targetLabel, cssVar("--cyan"), projector, "square");
   } else if (state.sceneKey >= 2) {
-    drawMarker(state.map.destination, "일감호 목적지", cssVar("--cyan"), projector, "square");
+    drawMarker(state.map.destination, "목적지", cssVar("--cyan"), projector, "square");
   }
   if (state.checkpoint) {
     drawMarker(state.checkpoint, "체크포인트", cssVar("--cyan"), projector, "square");
@@ -545,6 +545,30 @@ function formatDaylightRemaining(minutes) {
   return `${rest}분 남음`;
 }
 
+function setDaylightGlance(scene) {
+  const element = document.querySelector("#glanceSun");
+  const value = document.querySelector("#daylightValue");
+  const sub = document.querySelector("#daylightSub");
+  element.dataset.state = scene.alert ? "warn" : "normal";
+  if (scene.alert) {
+    value.classList.remove("sun-times");
+    value.textContent = formatDaylightRemaining(scene.daylight);
+    sub.hidden = false;
+    sub.textContent = `일몰 ${scene.sunset}`;
+    return;
+  }
+  const sunrise = document.createElement("span");
+  sunrise.className = "sunrise";
+  sunrise.textContent = `일출 ${VIDEO_SUNRISE}`;
+  const sunset = document.createElement("span");
+  sunset.className = "sunset";
+  sunset.textContent = `일몰 ${scene.sunset}`;
+  value.classList.add("sun-times");
+  value.replaceChildren(sunrise, sunset);
+  sub.hidden = true;
+  sub.textContent = "";
+}
+
 function showToast(message, duration) {
   const toast = document.querySelector("#statusToast");
   window.clearTimeout(toastTimer);
@@ -561,12 +585,7 @@ function render() {
   const scene = state.scene;
   const current = currentPoint();
   setGlance("#glanceGps", "caution", "±4.2 m", "SAT 9 · AGE 1s");
-  setGlance(
-    "#glanceSun",
-    scene.alert ? "warn" : "normal",
-    scene.alert ? formatDaylightRemaining(scene.daylight) : `일출 ${VIDEO_SUNRISE}`,
-    `일몰 ${scene.sunset}`
-  );
+  setDaylightGlance(scene);
   updateSeoulClock();
   setGlance(
     "#glanceRoute",
@@ -800,7 +819,7 @@ function showBasecampRoute() {
     current: "returnStart",
     route: "routeToBasecamp",
     routeValue: "BASE CAMP",
-    routeSub: "복귀 경로 표시",
+    routeSub: "BASE CAMP",
   };
   render();
   showToast("베이스캠프 복귀 경로가 설정되었습니다.", 2800);
