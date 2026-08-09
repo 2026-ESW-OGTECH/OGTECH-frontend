@@ -403,6 +403,15 @@ class AppHandler(BaseHTTPRequestHandler):
             "/product/live_app.js": PRODUCT_ROOT / "live_app.js",
             "/product/app.js": PRODUCT_ROOT / "app.js",
             "/product/konkuk_map.js": PRODUCT_ROOT / "konkuk_map.js",
+            "/video": PRODUCT_ROOT / "video.html",
+            "/video/": PRODUCT_ROOT / "video.html",
+            "/video/index.html": PRODUCT_ROOT / "video.html",
+            "/video/styles.css": PRODUCT_ROOT / "styles.css",
+            "/video/video_styles.css": PRODUCT_ROOT / "video_styles.css",
+            "/video/video_app.js": PRODUCT_ROOT / "video_app.js",
+            "/video/video_map.js": PRODUCT_ROOT / "video_map.js",
+            "/video/destination_set.wav": PRODUCT_ROOT / "destination_set.wav",
+            "/video/return_to_base.wav": PRODUCT_ROOT / "return_to_base.wav",
         }
         target = mapping.get(request_path)
         if not target or not target.is_file():
@@ -550,6 +559,7 @@ def main() -> None:
     )
     print(f"지도 검증 도구: http://{args.host}:{args.port}/")
     print(f"SafeAid 제품 화면: http://{args.host}:{args.port}/product/")
+    print(f"촬영 전용 DEMO: http://{args.host}:{args.port}/video/")
     print("종료: Ctrl+C")
     try:
         server.serve_forever()

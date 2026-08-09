@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>SafeAid · 건국대 시연 영상 MAP</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="video_styles.css">
+  <script src="video_map.js" defer></script>
+  <script src="video_app.js" defer></script>
+</head>
+<body>
+  <div class="stage">
+    <main class="screen video-screen" aria-label="SafeAid 건국대 영상 촬영 전용 DEMO 지도">
+      <header class="strip" aria-label="핵심 상태">
+        <section class="glance" id="glanceGps" data-state="caution">
+          <p class="stencil">POSITION</p>
+          <strong>DEMO ±4.2 m</strong>
+          <span class="sub">SAT 9 · 합성 위치</span>
+        </section>
+        <section class="glance" id="glanceSun" data-state="normal">
+          <p class="stencil">DAYLIGHT</p>
+          <strong>2:18</strong>
+          <span class="sub">일몰 19:32</span>
+        </section>
+        <section class="glance" id="glanceBattery" data-state="normal">
+          <p class="stencil">BATTERY</p>
+          <strong>11일</strong>
+          <span class="sub">78% · 감시 모드</span>
+        </section>
+        <section class="glance" id="glanceRoute" data-state="caution">
+          <p class="stencil">ROUTE</p>
+          <strong>BASE CAMP</strong>
+          <span class="sub">공학관 뒤편</span>
+        </section>
+        <section class="glance glance-env" id="glanceEnv" data-state="caution">
+          <p class="stencil">ENVIRONMENT</p>
+          <strong>23.4°</strong>
+          <span class="sub">58% RH · DEMO</span>
+        </section>
+      </header>
+
+      <section class="map" id="mapPanel" aria-label="공학관과 일감호 오프라인 지도">
+        <canvas id="mapCanvas"></canvas>
+
+        <div class="map-topline">
+          <span id="mapName">건국대학교 · 공학관 ↔ 일감호</span>
+          <span class="tag-offline">OFFLINE</span>
+          <span class="tag-demo">DEMO</span>
+        </div>
+
+        <div class="alert" id="alert" role="alert" hidden>
+          <span class="alert-dot" aria-hidden="true"></span>
+          <strong id="alertText">1시간 뒤에 해가 질 예정입니다. BASE CAMP로 돌아가세요.</strong>
+        </div>
+
+        <section class="dialogue-card" id="dialogueCard" aria-live="polite" hidden>
+          <div class="dialogue-head">
+            <span class="dialogue-label">OFFLINE VOICE</span>
+            <span class="dialogue-source">POI 사전 + 지도 엔진</span>
+          </div>
+          <p class="utterance" id="utterance">“나 목마른데 물 마실 곳 찾아줘”</p>
+          <p class="dialogue-answer" id="dialogueAnswer">일감호를 목적지로 설정했습니다.</p>
+          <p class="dialogue-safety">장소만 지정합니다. 식수 가능 여부는 판정하지 않습니다.</p>
+        </section>
+
+        <section class="readout-card" id="readout" aria-label="코드가 계산한 경로 정보" hidden>
+          <div class="readout-head">
+            <p class="stencil" id="readoutLabel">일감호</p>
+            <span class="verified demo-verified">MAP ENGINE</span>
+          </div>
+          <div class="readout-body">
+            <span class="bearing" id="readoutBearing">—</span>
+            <span class="distance" id="readoutDistance">—</span>
+          </div>
+          <p class="readout-sub" id="readoutSub">경로·방위·거리는 코드 계산</p>
+        </section>
+
+        <div class="map-meta">
+          <div class="scalebar">
+            <span id="scaleLabel">100 m</span>
+            <i id="scaleBar"></i>
+          </div>
+          <div class="legend" aria-label="지도 범례">
+            <span><i class="dot-current"></i>합성 현재</span>
+            <span><i class="dot-goal"></i>일감호</span>
+            <span><i class="dot-camp"></i>BASE CAMP</span>
+          </div>
+        </div>
+
+        <p class="map-attribution" id="mapAttribution">© OpenStreetMap contributors · ODbL 1.0</p>
+        <div class="status-toast" id="statusToast" role="status" hidden></div>
+      </section>
+
+      <nav class="actions" aria-label="촬영 장면 조작">
+        <button class="action" id="btnDestination" type="button">
+          <span class="glyph" aria-hidden="true">⌖</span>
+          <span class="label">목적지 설정</span>
+        </button>
+        <button class="action" id="btnWalk" type="button">
+          <span class="glyph" aria-hidden="true">➜</span>
+          <span class="label">이동 재생</span>
+        </button>
+        <button class="action" id="btnAlert" type="button">
+          <span class="glyph" aria-hidden="true">!</span>
+          <span class="label">일조 경고</span>
+        </button>
+        <button class="action" id="btnNext" type="button">
+          <span class="glyph" aria-hidden="true">▶</span>
+          <span class="label">다음 장면</span>
+        </button>
+      </nav>
+
+      <audio id="destinationAudio" preload="auto" src="destination_set.wav"></audio>
+      <audio id="warningAudio" preload="auto" src="return_to_base.wav"></audio>
+    </main>
+
+    <aside class="director" id="director" aria-label="촬영 보조 패널">
+      <p class="stencil">DIRECTOR · 화면 밖</p>
+      <p class="director-current"><b id="directorKey">1</b> <em id="directorScene">BASE CAMP 시작</em></p>
+      <ol>
+        <li><b>1</b> 공학관 뒤 BASE CAMP</li>
+        <li><b>2</b> 음성 요청 → 일감호 설정</li>
+        <li><b>3</b> 일감호로 이동 재생</li>
+        <li><b>4</b> 일감호 도착</li>
+        <li><b>5</b> 1시간 일조 경고 + 음성</li>
+        <li><b>6</b> BASE CAMP 복귀 재생</li>
+        <li><b>7</b> BASE CAMP 도착</li>
+      </ol>
+      <p><b>Space</b> 다음 · <b>B</b> 음성 재생 · <b>R</b> 처음 · <b>N</b> 야간</p>
+      <p>모든 센서·현재 위치 값은 영상용 합성값입니다. DEMO 표시는 숨기지 않습니다.</p>
+    </aside>
+  </div>
+</body>
+</html>

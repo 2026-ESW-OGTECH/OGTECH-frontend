@@ -132,6 +132,33 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertNotIn("demo-badge", html)
         self.assertIn("live_app.js", html)
 
+    def test_video_screen_is_explicit_demo_and_uses_konkuk_pois(self) -> None:
+        connection = HTTPConnection("127.0.0.1", self.port, timeout=5.0)
+        try:
+            connection.request("GET", "/video/")
+            response = connection.getresponse()
+            html = response.read().decode("utf-8")
+        finally:
+            connection.close()
+        self.assertEqual(response.status, 200)
+        self.assertIn("DEMO", html)
+        self.assertIn("video_app.js", html)
+        self.assertIn("공학관", html)
+        self.assertIn("일감호", html)
+        self.assertIn("식수 가능 여부는 판정하지 않습니다", html)
+
+        connection = HTTPConnection("127.0.0.1", self.port, timeout=5.0)
+        try:
+            connection.request("GET", "/video/video_map.js")
+            response = connection.getresponse()
+            map_data = response.read().decode("utf-8")
+        finally:
+            connection.close()
+        self.assertEqual(response.status, 200)
+        self.assertIn("relation/7885627", map_data)
+        self.assertIn("way/369210727", map_data)
+        self.assertIn("map_engine.find_route (A*)", map_data)
+
 
 if __name__ == "__main__":
     unittest.main()
