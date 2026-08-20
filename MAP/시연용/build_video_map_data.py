@@ -4,7 +4,7 @@
 공개 POI 외곽은 OpenStreetMap 객체를 오프라인 상수로 보관하고, 보행 경로는 기존
 ``map_engine.find_route``가 GraphML 위에서 계산한다. LLM은 좌표·방위·거리·경로를 만들지 않는다.
 
-    cd smartaid-frontend/MAP
+    cd OGTECH-frontend/MAP
     .venv/Scripts/python.exe 시연용/build_video_map_data.py
 """
 

@@ -13,9 +13,9 @@ if [[ ! -x "${PYTHON_BIN}" ]]; then
 fi
 
 if [[ ! -e "${STM32_PORT}" ]]; then
-  echo "STM32 직렬 장치를 찾지 못했습니다: ${STM32_PORT}" >&2
-  echo "SAFEAID_STM32_PORT를 /dev/serial/by-id/... 경로로 지정하세요." >&2
-  exit 1
+  echo "경고: STM32 직렬 장치를 아직 찾지 못했습니다: ${STM32_PORT}" >&2
+  echo "서버를 저하 상태로 시작합니다. GpsService가 2초 간격으로 연결을 재시도합니다." >&2
+  echo "연결 뒤에는 SAFEAID_STM32_PORT의 /dev/serial/by-id/... 경로를 권장합니다." >&2
 fi
 
 exec "${PYTHON_BIN}" "${MAP_DIR}/app.py" \

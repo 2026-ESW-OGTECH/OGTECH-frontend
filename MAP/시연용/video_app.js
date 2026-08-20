@@ -1,13 +1,14 @@
 /* SafeAid 건국대학교 시연 영상 전용 MAP — 1024x600
  *
- * 이 화면의 현재 위치·센서·일조 값은 촬영용 합성값이다. 그래서 CO 농도 칸에 DEMO 배지를 표시하고
+ * 이 화면의 현재 위치·센서 값은 촬영용 합성값이다. 그래서 CO 농도 칸에 DEMO 배지를 표시하고
  * 녹색 LIVE 상태를 쓰지 않는다. 공개 POI와 보행망은 오프라인 파일이며, 경로·방위·거리는
  * 아래 코드와 map_engine이 계산한다. LLM은 좌표나 숫자를 생성하지 않는다.
  */
 
 "use strict";
 
-const VIDEO_SUNRISE = "05:34";
+const OFFICIAL_ZENITH_DEG = 90.833;
+const SEOUL_TIME_ZONE = "Asia/Seoul";
 
 const FALLBACK_MAP = {
   name: "건국대학교 · 공학관 ↔ 일감호",
@@ -63,45 +64,45 @@ const SCENES = {
   1: {
     title: "BASE CAMP 시작",
     current: "basecamp", target: null, route: null,
-    daylight: 138, sunset: "19:32", routeValue: "BASE CAMP", routeSub: "공학관 뒤편",
+    routeValue: "BASE CAMP", routeSub: "공학관 뒤편",
     alert: null, arrival: null, toast: null,
   },
   2: {
     title: "음성 요청 → 일감호 설정",
     current: "basecamp", target: "destination", route: "routeOutbound",
-    daylight: 132, sunset: "19:32", routeValue: "일감호", routeSub: "목적지",
+    routeValue: "일감호", routeSub: "목적지",
     alert: null, arrival: null, toast: null,
   },
   3: {
     title: "일감호로 이동",
     current: "basecamp", target: "destination", route: "routeOutbound",
-    daylight: 126, sunset: "19:32", routeValue: "이동 중", routeSub: "목적지",
+    routeValue: "이동 중", routeSub: "목적지",
     alert: null, arrival: null, toast: null,
   },
   4: {
     title: "일감호 도착",
     current: "destination", target: null, route: null,
-    daylight: 67, sunset: "19:32", routeValue: "도착", routeSub: "일감호 북쪽 산책로",
+    routeValue: "도착", routeSub: "일감호 북쪽 산책로",
     alert: null, arrival: "목적지에 도착하였습니다.", toast: null,
   },
   5: {
-    title: "1시간 일조 경고",
+    title: "일조 잔여 경고",
     current: "destination", target: "basecamp", route: "routeReturn",
-    daylight: 60, sunset: "19:32", routeValue: "복귀 필요", routeSub: "BASE CAMP 경로",
-    alert: "해가 지기까지 1시간 남았습니다. Base Camp로 돌아가세요.",
+    routeValue: "복귀 필요", routeSub: "BASE CAMP 경로",
+    alert: true,
     arrival: null, toast: null,
   },
   6: {
     title: "BASE CAMP 복귀",
     current: "destination", target: "basecamp", route: "routeReturn",
-    daylight: 58, sunset: "19:32", routeValue: "복귀 중", routeSub: "BASE CAMP",
+    routeValue: "복귀 중", routeSub: "BASE CAMP",
     alert: null, arrival: null, toast: null,
   },
   7: {
     title: "BASE CAMP 도착",
     current: "basecamp", target: null, route: null,
-    daylight: 54, sunset: "19:32", routeValue: "도착", routeSub: "BASE CAMP",
-    alert: null, arrival: null, toast: "BASE CAMP 도착",
+    routeValue: "도착", routeSub: "BASE CAMP",
+    alert: null, arrival: "Base Camp에 도착하였습니다.", toast: null,
   },
 };
 
@@ -112,6 +113,7 @@ const state = {
   night: false,
   checkpoint: null,
   destinationSelecting: false,
+  daylightAlertSnapshot: null,
 };
 
 const walk = {
@@ -127,11 +129,11 @@ const walk = {
 // speedMps로 끝날 때까지 재생하므로 여기에는 넣지 않는다.
 const AUTO_DEMO_DELAYS_MS = Object.freeze({
   basecampRegistered: 3000,
-  destinationFallback: 9500,
+  destinationFallback: 13000,
   arrivalFallback: 3600,
   warningFallback: 6200,
   returnRouteShown: 3000,
-  basecampArrival: 2500,
+  basecampArrival: 3600,
   nightMode: 2800,
 });
 
@@ -544,7 +546,7 @@ const seoulClockFormatter = new Intl.DateTimeFormat("ko-KR", {
 });
 
 const etaTimeFormatter = new Intl.DateTimeFormat("ko-KR", {
-  timeZone: "Asia/Seoul",
+  timeZone: SEOUL_TIME_ZONE,
   hour: "2-digit",
   minute: "2-digit",
   hourCycle: "h23",
@@ -559,12 +561,120 @@ function updateSeoulClock() {
     `${parts.year}.${parts.month}.${parts.day} ${parts.hour}:${parts.minute} KST`;
 }
 
+function normalizedDegrees(value) {
+  return ((value % 360) + 360) % 360;
+}
+
+function dayOfYear(year, month, day) {
+  return Math.floor(
+    (Date.UTC(year, month - 1, day) - Date.UTC(year, 0, 0)) / 86400000
+  );
+}
+
+// NOAA 공개 근사식과 MAP/solar_service.py의 절차를 동일하게 적용한다.
+function solarEventUtcHour(dateParts, latitude, longitude, sunrise) {
+  const dayNumber = dayOfYear(dateParts.year, dateParts.month, dateParts.day);
+  const longitudeHour = longitude / 15;
+  const approximate = dayNumber + ((sunrise ? 6 : 18) - longitudeHour) / 24;
+  const meanAnomaly = 0.9856 * approximate - 3.289;
+  const trueLongitude = normalizedDegrees(
+    meanAnomaly
+      + 1.916 * Math.sin(toRad(meanAnomaly))
+      + 0.020 * Math.sin(toRad(2 * meanAnomaly))
+      + 282.634
+  );
+  let rightAscension = normalizedDegrees(
+    toDeg(Math.atan(0.91764 * Math.tan(toRad(trueLongitude))))
+  );
+  const longitudeQuadrant = Math.floor(trueLongitude / 90) * 90;
+  const ascensionQuadrant = Math.floor(rightAscension / 90) * 90;
+  rightAscension = (rightAscension + longitudeQuadrant - ascensionQuadrant) / 15;
+
+  const sinDeclination = 0.39782 * Math.sin(toRad(trueLongitude));
+  const cosDeclination = Math.cos(Math.asin(sinDeclination));
+  const denominator = cosDeclination * Math.cos(toRad(latitude));
+  if (Math.abs(denominator) < 1e-12) return null;
+  const cosineHour = (
+    Math.cos(toRad(OFFICIAL_ZENITH_DEG))
+      - sinDeclination * Math.sin(toRad(latitude))
+  ) / denominator;
+  if (cosineHour > 1 || cosineHour < -1) return null;
+
+  const hourAngle = (
+    sunrise
+      ? 360 - toDeg(Math.acos(cosineHour))
+      : toDeg(Math.acos(cosineHour))
+  ) / 15;
+  const localMeanTime = hourAngle + rightAscension - 0.06571 * approximate - 6.622;
+  return normalizedDegrees((localMeanTime - longitudeHour) * 15) / 15;
+}
+
+function seoulDateParts(date) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: SEOUL_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = {};
+  formatter.formatToParts(date).forEach((part) => {
+    if (part.type !== "literal") parts[part.type] = Number(part.value);
+  });
+  return parts;
+}
+
+function localDateKey(date) {
+  const parts = seoulDateParts(date);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function solarEventDate(dateParts, latitude, longitude, sunrise) {
+  const utcHour = solarEventUtcHour(dateParts, latitude, longitude, sunrise);
+  if (utcHour === null) return null;
+  const utcMidnight = Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day);
+  const targetKey = `${dateParts.year}-${String(dateParts.month).padStart(2, "0")}-${String(dateParts.day).padStart(2, "0")}`;
+  const candidates = [-1, 0, 1].map((dayShift) =>
+    new Date(utcMidnight + dayShift * 86400000 + Math.round(utcHour * 3600000))
+  );
+  return candidates.find((candidate) => localDateKey(candidate) === targetKey) || candidates[1];
+}
+
+function todayDaylight(now) {
+  const currentTime = now || new Date();
+  const dateParts = seoulDateParts(currentTime);
+  const current = currentPoint();
+  const sunset = solarEventDate(dateParts, current.lat, current.lon, false);
+  const differenceMs = sunset ? sunset.getTime() - currentTime.getTime() : 0;
+  const pastSunset = Boolean(sunset) && differenceMs < 0;
+  const remainingMinutes = sunset
+    ? Math.ceil(Math.abs(differenceMs) / 60000)
+    : 0;
+  return { sunset, remainingMinutes, pastSunset };
+}
+
+function daylightForDisplay() {
+  return state.daylightAlertSnapshot || todayDaylight();
+}
+
+function daylightWarningText() {
+  const { remainingMinutes, pastSunset } = daylightForDisplay();
+  if (pastSunset) {
+    return "일몰 시간이 지났습니다. 귀환 권고 시각과 베이스캠프 경로를 확인하세요.";
+  }
+  return `해 지기까지 ${remainingMinutes}분 남았습니다. 귀환 권고 시각과 베이스캠프 경로를 확인하세요.`;
+}
+
 function formatDaylightRemaining(minutes) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   if (hours > 0 && rest === 0) return `${hours}시간 남음`;
   if (hours > 0) return `${hours}시간 ${rest}분 남음`;
   return `${rest}분 남음`;
+}
+
+function formatDaylightStatus(daylight) {
+  if (daylight.pastSunset) return `${daylight.remainingMinutes}분 초과`;
+  return formatDaylightRemaining(daylight.remainingMinutes);
 }
 
 function formatCoordinate(value) {
@@ -582,24 +692,14 @@ function setDaylightGlance(scene) {
   const element = document.querySelector("#glanceSun");
   const value = document.querySelector("#daylightValue");
   const sub = document.querySelector("#daylightSub");
+  const daylight = daylightForDisplay();
   element.dataset.state = scene.alert ? "warn" : "normal";
-  if (scene.alert) {
-    value.classList.remove("sun-times");
-    value.textContent = formatDaylightRemaining(scene.daylight);
-    sub.hidden = false;
-    sub.textContent = `일몰 ${scene.sunset}`;
-    return;
-  }
-  const sunrise = document.createElement("span");
-  sunrise.className = "sunrise";
-  sunrise.textContent = `일출 ${VIDEO_SUNRISE}`;
-  const sunset = document.createElement("span");
-  sunset.className = "sunset";
-  sunset.textContent = `일몰 ${scene.sunset}`;
-  value.classList.add("sun-times");
-  value.replaceChildren(sunrise, sunset);
-  sub.hidden = true;
-  sub.textContent = "";
+  value.classList.remove("sun-times");
+  value.textContent = formatDaylightStatus(daylight);
+  sub.hidden = false;
+  sub.textContent = daylight.sunset
+    ? `금일 일몰 ${etaTimeFormatter.format(daylight.sunset)}`
+    : "금일 일몰 계산 불가";
 }
 
 function showToast(message, duration) {
@@ -671,7 +771,7 @@ function render() {
 
   const alertBox = document.querySelector("#alert");
   if (scene.alert) {
-    document.querySelector("#alertText").textContent = scene.alert;
+    document.querySelector("#alertText").textContent = daylightWarningText();
     alertBox.hidden = false;
   } else {
     alertBox.hidden = true;
@@ -754,31 +854,42 @@ function stopWalk(keepPosition) {
 }
 
 function fallbackSpeech(text) {
-  if (!("speechSynthesis" in window)) return;
+  if (!("speechSynthesis" in window)) return false;
+  const koreanVoice = window.speechSynthesis.getVoices().find((voice) =>
+    String(voice.lang).toLowerCase().startsWith("ko")
+  );
+  if (!koreanVoice) return false;
   window.speechSynthesis.cancel();
   const message = new SpeechSynthesisUtterance(text);
   message.lang = "ko-KR";
+  message.voice = koreanVoice;
   message.rate = 0.92;
   window.speechSynthesis.speak(message);
+  return true;
+}
+
+function playDaylightAudio() {
+  if (fallbackSpeech(daylightWarningText())) return;
+  showToast("한국어 TTS가 없어 일조 경고는 화면에만 표시합니다", 3200);
 }
 
 function playFixedAudio(kind) {
+  if (kind === "warning" || kind === "daylightDetail") {
+    playDaylightAudio();
+    return;
+  }
   const fixedAudio = {
     destination: {
       selector: "#destinationAudio",
-      text: "가까운 곳에 일감호 주변 휴식 지점이 있습니다. 목적지로 설정할게요. 경로 설정을 완료했습니다.",
+      text: "가장 가까운 지점에 호수가 있습니다. 이곳을 목적지로 지정할까요? 네, 목적지로 설정되었습니다.",
     },
     arrival: {
       selector: "#arrivalAudio",
       text: "목적지에 도착하였습니다.",
     },
-    warning: {
-      selector: "#warningAudio",
-      text: "해가 지기까지 1시간 남았습니다. Base Camp로 돌아가세요.",
-    },
-    daylightDetail: {
-      selector: "#daylightDetailAudio",
-      text: "현재 위치 기준으로 약 한 시간 뒤에 해가 집니다.",
+    basecamp: {
+      selector: "#basecampAudio",
+      text: "Base Camp에 도착하였습니다.",
     },
   };
   const selected = fixedAudio[kind] || fixedAudio.destination;
@@ -798,6 +909,7 @@ function setScene(key, options) {
   setDestinationSelection(false);
   state.sceneKey = sceneKey;
   state.scene = SCENES[sceneKey];
+  state.daylightAlertSnapshot = sceneKey === 5 ? todayDaylight() : null;
   showToast(state.scene.toast, sceneKey === 4 || sceneKey === 7 ? 4000 : 2600);
   render();
 
@@ -805,6 +917,7 @@ function setScene(key, options) {
   if (sceneKey === 2 && withAudio) playFixedAudio("destination");
   if (sceneKey === 4 && withAudio) playFixedAudio("arrival");
   if (sceneKey === 5 && withAudio) playFixedAudio("warning");
+  if (sceneKey === 7 && withAudio) playFixedAudio("basecamp");
   const autoWalk = !options || options.autoWalk !== false;
   if ((sceneKey === 3 || sceneKey === 6) && autoWalk) {
     walkStartTimer = window.setTimeout(startWalk, 450);
@@ -855,6 +968,7 @@ function selectMapDestination(event) {
     arrival: null,
     toast: null,
   };
+  state.daylightAlertSnapshot = null;
   render();
 }
 
@@ -897,6 +1011,7 @@ function showBasecampRoute() {
     routeValue: "BASE CAMP",
     routeSub: "BASE CAMP",
   };
+  state.daylightAlertSnapshot = null;
   render();
   showToast("베이스캠프 복귀 경로가 설정되었습니다.", 2800);
 }
@@ -928,10 +1043,7 @@ async function startAutoDemo() {
   )) return;
 
   setScene(5, { autoWalk: false });
-  if (!await waitForAutoDemo(
-    runId,
-    audioDurationMs("#warningAudio", AUTO_DEMO_DELAYS_MS.warningFallback)
-  )) return;
+  if (!await waitForAutoDemo(runId, AUTO_DEMO_DELAYS_MS.warningFallback)) return;
 
   const returnCompleted = waitForAutoWalk(runId);
   showBasecampRoute();
@@ -939,7 +1051,10 @@ async function startAutoDemo() {
   if (!autoDemo.active || autoDemo.runId !== runId) return;
   startWalk();
   if (!await returnCompleted) return;
-  if (!await waitForAutoDemo(runId, AUTO_DEMO_DELAYS_MS.basecampArrival)) return;
+  if (!await waitForAutoDemo(
+    runId,
+    audioDurationMs("#basecampAudio", AUTO_DEMO_DELAYS_MS.basecampArrival)
+  )) return;
 
   setNight(true, true);
   await waitForAutoDemo(runId, AUTO_DEMO_DELAYS_MS.nightMode);
@@ -990,7 +1105,9 @@ window.addEventListener("keydown", (event) => {
     cancelAutoDemo();
     const audioKind = state.sceneKey === 5
       ? "warning"
-      : state.sceneKey === 4
+      : state.sceneKey === 7
+        ? "basecamp"
+        : state.sceneKey === 4
         ? "arrival"
         : "destination";
     playFixedAudio(audioKind);
@@ -1015,4 +1132,7 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("resize", draw);
 setNight(false);
 setScene(1, { audio: false });
-window.setInterval(updateSeoulClock, 1000);
+window.setInterval(() => {
+  updateSeoulClock();
+  setDaylightGlance(state.scene);
+}, 1000);

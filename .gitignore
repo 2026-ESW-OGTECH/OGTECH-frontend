@@ -12,3 +12,8 @@ venv/
 Thumbs.db
 desktop.ini
 *.swp
+
+# 로컬 전용 산출물 — legacy/ 로 보관하고 커밋하지 않음
+MAP/videos/
+MAP/test-results/
+MAP/시연용/video_app (*).js

@@ -36,6 +36,8 @@ def telemetry_payload(*, alarm: bool = False) -> dict[str, object]:
             "valid": True,
             "temp_c": 23.45,
             "humidity_pct": 58.2,
+            "press_hpa": 1007.4,
+            "press_trend": "falling",
             "age_s": 0.1,
         },
         "co": {
@@ -61,6 +63,8 @@ class TelemetryParserTest(unittest.TestCase):
         self.assertTrue(result["gps"]["fix"])
         self.assertEqual(result["gps"]["satellites"], 11)
         self.assertAlmostEqual(result["environment"]["temp_c"], 23.45)
+        self.assertAlmostEqual(result["environment"]["press_hpa"], 1007.4)
+        self.assertEqual(result["environment"]["press_trend"], "falling")
         self.assertAlmostEqual(result["co"]["ppm"], 3.2)
 
     def test_single_byte_corruption_is_rejected(self) -> None:
@@ -73,6 +77,13 @@ class TelemetryParserTest(unittest.TestCase):
         assert isinstance(payload["co"], dict)
         payload["co"]["level"] = "normal"
         with self.assertRaisesRegex(GpsInputError, "alarm과 level"):
+            parse_stm32_telemetry(encode_stm32_telemetry(payload))
+
+    def test_unknown_pressure_trend_is_rejected(self) -> None:
+        payload = telemetry_payload()
+        assert isinstance(payload["env"], dict)
+        payload["env"]["press_trend"] = "storm"
+        with self.assertRaisesRegex(GpsInputError, "press_trend"):
             parse_stm32_telemetry(encode_stm32_telemetry(payload))
 
 
@@ -90,6 +101,7 @@ class TelemetryServiceTest(unittest.TestCase):
             self.assertFalse(snapshot["demo"])
             self.assertTrue(snapshot["environment"]["valid"])
             self.assertEqual(snapshot["environment"]["humidity_pct"], 58.2)
+            self.assertEqual(snapshot["environment"]["press_hpa"], 1007.4)
             self.assertTrue(snapshot["co"]["alarm"])
             self.assertEqual(snapshot["telemetry_version"], 1)
         finally:

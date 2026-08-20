@@ -16,7 +16,7 @@ STM32 모드는 연결 직후 `STREAM ON`을 한 번 전송하고 GPS·SHT40·CO
 ## 하드웨어 전 확인
 
 ```bash
-cd smartaid-frontend/MAP
+cd OGTECH-frontend/MAP
 . .venv/bin/activate
 python app.py --gps-mode replay
 ```
@@ -50,6 +50,7 @@ curl -s http://127.0.0.1:8790/api/device | python3 -m json.tool
 ```text
 gps.connected / gps.fix / gps.satellites / gps.age_s
 environment.valid / environment.temp_c / environment.humidity_pct
+environment.press_hpa / environment.press_trend
 co.valid / co.warming_up / co.ppm / co.alarm
 gps.rejected_lines / gps.sequence_gaps
 ```

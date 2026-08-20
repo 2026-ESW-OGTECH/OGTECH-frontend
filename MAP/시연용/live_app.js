@@ -22,11 +22,27 @@ const state = {
   selectingDestination: false,
   night: false,
   eventSource: null,
+  voiceEventSource: null,
+  lastVoiceSequence: 0,
+  announcedArrival: null,
+  bootLocked: true,
+  bootDiagnosticOverall: "checking",
 };
 
 let toastTimer = null;
+let voiceChipTimer = null;
 let alarmTimer = null;
 let audioContext = null;
+
+const kstClockFormatter = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
 
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -54,6 +70,28 @@ function formatDuration(minutes) {
   return hours ? `${hours}:${String(rest).padStart(2, "0")}` : `${rest}분`;
 }
 
+function formatDaylight(minutes) {
+  if (!finite(minutes)) return "—";
+  if (minutes < 0) return `${Math.abs(Math.round(minutes))}분 초과`;
+  return formatDuration(minutes);
+}
+
+function formatKstClock(value = null) {
+  const parsed = value ? new Date(value) : new Date();
+  const now = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  const parts = Object.fromEntries(
+    kstClockFormatter.formatToParts(now)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+  return `${parts.month}.${parts.day} ${parts.hour}:${parts.minute}:${parts.second} KST`;
+}
+
+function formatCoordinate(value, positive, negative) {
+  if (!finite(value)) return "—";
+  return `${Math.abs(value).toFixed(6)}° ${value >= 0 ? positive : negative}`;
+}
+
 function setGlance(selector, stateName, value, sub) {
   const element = document.querySelector(selector);
   element.dataset.state = stateName;
@@ -71,10 +109,14 @@ function showToast(message, durationMs = 1800) {
   }, durationMs);
 }
 
-function setNight(on) {
+function applyNight(on) {
   state.night = Boolean(on);
   document.documentElement.dataset.night = state.night ? "on" : "off";
   document.querySelector("#btnNight").setAttribute("aria-pressed", String(state.night));
+}
+
+function setNight(on) {
+  applyNight(on);
   render();
 }
 
@@ -305,9 +347,9 @@ function renderGps(device) {
 function renderEnvironment(device) {
   const env = device.environment || {};
   const co = device.co || {};
-  if (!state.connected || (!env.valid && !co.valid)) {
+  if (!state.connected || (!env.valid && !env.pressure_valid && !co.valid)) {
     const value = co.warming_up ? "CO 예열" : "연동 전";
-    setGlance("#glanceEnv", "none", value, "RH — · CO —");
+    setGlance("#glanceEnv", "none", value, "RH — · P — · CO —");
     return;
   }
   let stateName = device.demo ? "normal" : "live";
@@ -315,8 +357,37 @@ function renderEnvironment(device) {
   if (co.alarm) stateName = "warn";
   const temp = env.valid ? `${formatNumber(env.temp_c, 1)}°C` : "—";
   const humidity = env.valid ? `${Math.round(env.humidity_pct)}%` : "—";
+  const trendMark = { rising: "↑", steady: "→", falling: "↓" }[env.press_trend] || "";
+  const pressure = env.pressure_valid && finite(env.press_hpa)
+    ? `${Math.round(env.press_hpa)}${trendMark}`
+    : "—";
   const coValue = co.valid && finite(co.ppm) ? `${formatNumber(co.ppm, 1)}` : co.warming_up ? "예열" : "—";
-  setGlance("#glanceEnv", stateName, temp, `RH ${humidity} · CO ${coValue}`);
+  setGlance("#glanceEnv", stateName, temp, `RH ${humidity} · P ${pressure} · CO ${coValue}`);
+}
+
+function renderPositionDetails(device) {
+  const element = document.querySelector("#positionDetails");
+  const gps = device.gps || {};
+  const deviceClock = device.clock || {};
+  const clock = `${formatKstClock(deviceClock.iso_utc)} · ${deviceClock.confirmed ? "RTC" : "SYS"}`;
+  if (state.connected && gps.fix) {
+    const accuracy = finite(gps.acc_m) ? `±${gps.acc_m.toFixed(1)} m` : "±—";
+    element.dataset.state = gps.demo ? "normal" : "live";
+    element.textContent =
+      `현재 ${formatCoordinate(gps.lat, "N", "S")} · ${formatCoordinate(gps.lon, "E", "W")} · ` +
+      `${accuracy} · SAT ${gps.satellites ?? "—"} · ${clock}`;
+    return;
+  }
+  const last = gps.last_fix;
+  element.dataset.state = "none";
+  if (last && finite(last.lat) && finite(last.lon)) {
+    const accuracy = finite(last.acc_m) ? `±${last.acc_m.toFixed(1)} m` : "±—";
+    element.textContent =
+      `마지막 확정 ${formatCoordinate(last.lat, "N", "S")} · ${formatCoordinate(last.lon, "E", "W")} · ` +
+      `${accuracy} · SAT ${last.satellites ?? "—"} · AGE ${formatAge(gps.last_age_s)} · ${clock}`;
+    return;
+  }
+  element.textContent = `좌표 데이터 없음 · ${clock}`;
 }
 
 function renderSun(device) {
@@ -324,11 +395,17 @@ function renderSun(device) {
   if (!sun.computed) {
     setGlance("#glanceSun", "none", "계산 불가", "GPS 위치 필요");
   } else {
-    const stateName = sun.reference !== "current_fix" ? "none" : sun.status === "return_now" ? "warn" : "normal";
+    const stateName = sun.reference !== "current_fix"
+      ? "none"
+      : sun.level === "danger"
+        ? "warn"
+        : sun.level === "caution"
+          ? "caution"
+          : "normal";
     setGlance(
       "#glanceSun",
       stateName,
-      formatDuration(sun.remaining_min),
+      formatDaylight(sun.remaining_min),
       `일몰 ${sun.sunset_clock || "—"} · 귀환 ${sun.return_by_clock || "—"}`,
     );
   }
@@ -377,7 +454,20 @@ function renderReadout(device) {
   document.querySelector("#readoutBearing").textContent = `${String(Math.round(route.bearing_deg)).padStart(3, "0")}°`;
   document.querySelector("#readoutDistance").textContent = `${Math.round(route.distance_m)} m`;
   document.querySelector("#readoutSub").textContent =
-    `경로 따라 ${Math.round(route.distance_m)} m · 직선 ${Math.round(route.straight_m)} m`;
+    `경로 ${Math.round(route.distance_m)} m · 예상 ${Math.round(route.eta_min || 0)}분 · 직선 ${Math.round(route.straight_m)} m`;
+}
+
+function renderArrival(device) {
+  const arrival = device.navigation && device.navigation.arrival;
+  if (!arrival || !arrival.arrived) {
+    state.announcedArrival = null;
+    return;
+  }
+  const target = arrival.target || {};
+  const key = String(target.id || target.kind || "target");
+  if (state.announcedArrival === key) return;
+  state.announcedArrival = key;
+  showToast(`${target.name || "목적지"}에 도착했습니다`, 5000);
 }
 
 function renderAlert(device) {
@@ -400,17 +490,23 @@ function render() {
     setGlance("#glanceSun", "none", "계산 대기", "GPS 위치 필요");
     setGlance("#glanceBattery", "none", "연동 전", "배터리 계측 없음");
     setGlance("#glanceTrail", "none", "확인 불가", "지도 또는 GPS 없음");
-    setGlance("#glanceEnv", "none", "연동 전", "RH — · CO —");
+    setGlance("#glanceEnv", "none", "연동 전", "RH — · P — · CO —");
+    renderPositionDetails({});
     document.querySelector("#demoChip").hidden = !state.map.demo;
     draw();
     return;
   }
+  if (device.interface && typeof device.interface.night === "boolean") {
+    applyNight(device.interface.night);
+  }
   renderGps(device);
+  renderPositionDetails(device);
   renderSun(device);
   renderBattery(device);
   renderTrail(device);
   renderEnvironment(device);
   renderReadout(device);
+  renderArrival(device);
   renderAlert(device);
   document.querySelector("#mapName").textContent = device.map.name || state.map.name;
   document.querySelector("#demoChip").hidden = !device.demo;
@@ -467,6 +563,44 @@ async function postWaypoint(payload) {
   return result;
 }
 
+function applyVoiceEvent(payload, showMessage = true) {
+  if (!payload || typeof payload !== "object") return;
+  if (payload.device) {
+    state.device = payload.device;
+    state.connected = true;
+  }
+  if (payload.ui && typeof payload.ui.night === "boolean") {
+    applyNight(payload.ui.night);
+  }
+  if (Number.isFinite(payload.sequence)) {
+    state.lastVoiceSequence = Math.max(state.lastVoiceSequence, payload.sequence);
+  }
+  const chip = document.querySelector("#voiceChip");
+  if (payload.status) {
+    chip.textContent = payload.status === "accepted" ? "VOICE · OK" :
+      payload.status === "confirmation_required" ? "VOICE · 확인" : "VOICE · 보류";
+    chip.dataset.status = payload.status;
+    chip.hidden = false;
+    if (voiceChipTimer) window.clearTimeout(voiceChipTimer);
+    voiceChipTimer = window.setTimeout(() => { chip.hidden = true; }, 4200);
+  }
+  if (showMessage && payload.message) showToast(payload.message, 3800);
+  render();
+}
+
+async function postVoiceCommand(action) {
+  const response = await fetch("/api/voice/commands", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+    cache: "no-store",
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "음성 지도 명령 실패");
+  applyVoiceEvent(result);
+  return result;
+}
+
 document.querySelector("#btnDestination").addEventListener("click", () => {
   state.selectingDestination = !state.selectingDestination;
   showToast(state.selectingDestination ? "지도에서 목적지를 터치하세요" : "목적지 지정을 취소했습니다");
@@ -515,14 +649,32 @@ document.querySelector("#btnBasecamp").addEventListener("click", async () => {
   }
 });
 
-document.querySelector("#btnNight").addEventListener("click", () => setNight(!state.night));
+document.querySelector("#btnNight").addEventListener("click", async () => {
+  try {
+    await postVoiceCommand(state.night ? "night_off" : "night_on");
+  } catch (error) {
+    showToast(error.message, 2600);
+  }
+});
 
 document.addEventListener("pointerdown", () => {
   if (audioContext && audioContext.state === "suspended") audioContext.resume().catch(() => {});
 }, { passive: true });
 
 window.addEventListener("keydown", (event) => {
-  if (event.key === "n" || event.key === "N") setNight(!state.night);
+  if (state.bootLocked) {
+    event.preventDefault();
+    const notice = document.querySelector("#bootNotice");
+    const button = document.querySelector("#bootAcknowledge");
+    if (event.key === "Tab" && !button.disabled) button.focus();
+    else notice.focus();
+    return;
+  }
+  if (event.key === "n" || event.key === "N") {
+    postVoiceCommand(state.night ? "night_off" : "night_on").catch((error) => {
+      showToast(error.message, 2600);
+    });
+  }
   if (event.key === "Escape" && state.selectingDestination) {
     state.selectingDestination = false;
     render();
@@ -563,6 +715,21 @@ async function loadDevice() {
   render();
 }
 
+async function loadVoice() {
+  try {
+    const response = await fetch("/api/voice", { cache: "no-store" });
+    if (!response.ok) return;
+    const payload = await response.json();
+    if (payload.ui && typeof payload.ui.night === "boolean") {
+      applyNight(payload.ui.night);
+    }
+    if (Number.isFinite(payload.sequence)) state.lastVoiceSequence = payload.sequence;
+  } catch (error) {
+    // 지도와 센서 화면은 음성 브리지 장애와 독립적으로 계속 동작합니다.
+  }
+  render();
+}
+
 function connectEvents() {
   if (!("EventSource" in window)) return;
   if (state.eventSource) state.eventSource.close();
@@ -585,5 +752,125 @@ function connectEvents() {
   };
 }
 
+function connectVoiceEvents() {
+  if (!("EventSource" in window)) return;
+  if (state.voiceEventSource) state.voiceEventSource.close();
+  const source = new EventSource("/api/voice/events");
+  state.voiceEventSource = source;
+  source.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      if (Number.isFinite(payload.sequence) && payload.sequence <= state.lastVoiceSequence) return;
+      applyVoiceEvent(payload);
+    } catch (error) {
+      showToast("음성 지도 명령을 화면에 반영하지 못했습니다", 2600);
+    }
+  };
+}
+
+function setupBootNotice() {
+  const notice = document.querySelector("#bootNotice");
+  const screen = document.querySelector("#screen");
+  const button = document.querySelector("#bootAcknowledge");
+  const label = document.querySelector("#bootCountdown");
+  screen.inert = true;
+  screen.setAttribute("aria-hidden", "true");
+  notice.focus();
+  let remaining = 5;
+  const finishCountdown = () => {
+    if (state.bootDiagnosticOverall === "checking") {
+      button.disabled = true;
+      label.textContent = "부팅 자가진단 결과를 기다리는 중입니다";
+      return;
+    }
+    button.disabled = false;
+    label.textContent = state.bootDiagnosticOverall === "ready"
+      ? "별도 비상 통신 수단 준비를 확인했습니다"
+      : state.bootDiagnosticOverall === "demo"
+        ? "DEMO·대기 상태를 확인하고 계속합니다"
+        : "성능저하·대기 상태를 확인하고 계속합니다";
+    button.focus();
+  };
+  document.addEventListener("safeaid:diagnostics", () => {
+    if (remaining <= 0) finishCountdown();
+  });
+  const update = () => {
+    if (remaining > 0) {
+      label.textContent = `${remaining}초 동안 내용을 확인하세요`;
+      remaining -= 1;
+      window.setTimeout(update, 1000);
+      return;
+    }
+    finishCountdown();
+  };
+  button.addEventListener("click", () => {
+    if (button.disabled) return;
+    state.bootLocked = false;
+    screen.inert = false;
+    screen.removeAttribute("aria-hidden");
+    notice.hidden = true;
+    document.querySelector("#btnDestination").focus();
+  });
+  update();
+}
+
+async function loadBootDiagnostics() {
+  const summary = document.querySelector("#bootDiagnosticSummary");
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 3000);
+  try {
+    const response = await fetch("/api/diagnostics", {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    for (const check of payload.checks || []) {
+      const item = document.querySelector(`[data-check="${check.id}"]`);
+      if (!item) continue;
+      item.dataset.state = check.state;
+      const value = item.querySelector("strong");
+      value.textContent = check.state === "pass"
+        ? "정상"
+        : check.state === "demo"
+          ? "DEMO"
+          : check.state === "waiting"
+            ? "대기"
+            : "실패";
+      item.title = check.detail || "";
+      item.querySelector("small").textContent = check.detail || "상세 정보 없음";
+    }
+    state.bootDiagnosticOverall = payload.overall || "degraded";
+    summary.textContent = payload.overall === "ready"
+      ? "부팅 자가진단 · 모든 연결 확인"
+      : payload.overall === "demo"
+        ? "부팅 자가진단 · DEMO/대기 상태"
+        : payload.overall === "waiting"
+          ? "부팅 자가진단 · 장치 연결 대기"
+          : "부팅 자가진단 · 성능저하 확인 필요";
+  } catch (error) {
+    state.bootDiagnosticOverall = "degraded";
+    summary.textContent = "부팅 자가진단 · 서버 연결 실패";
+    document.querySelectorAll("#bootChecks li").forEach((item) => {
+      item.dataset.state = "fail";
+      item.querySelector("strong").textContent = "실패";
+      item.querySelector("small").textContent = "진단 서버 연결 실패";
+    });
+  } finally {
+    window.clearTimeout(timeout);
+    document.dispatchEvent(new CustomEvent("safeaid:diagnostics"));
+  }
+}
+
 setNight(false);
-Promise.all([loadMap(), loadDevice()]).then(connectEvents);
+setupBootNotice();
+loadBootDiagnostics();
+Promise.all([loadMap(), loadDevice(), loadVoice()]).then(() => {
+  connectEvents();
+  connectVoiceEvents();
+});
+
+// 장치 상태를 재폴링하지 않고 화면의 로컬 KST 시각만 갱신합니다.
+window.setInterval(() => {
+  renderPositionDetails(state.device || {});
+}, 1000);
