@@ -1,7 +1,7 @@
 # OGTECH-frontend — 키오스크 UI와 오프라인 지도 엔진
 
 **SafeAid Kit** (2026 임베디드 소프트웨어 경진대회 자유공모 / 팀 OGTECH) 의 프런트엔드 저장소입니다.
-[조직 개요](https://github.com/2026-ESCW-OGTECH) · [다른 저장소 안내](https://github.com/2026-ESCW-OGTECH/.github)
+[조직 개요](https://github.com/2026-ESW-OGTECH) · [다른 저장소 안내](https://github.com/2026-ESW-OGTECH/.github)
 
 ---
 
