@@ -34,12 +34,21 @@ class ServerSmokeTest(unittest.TestCase):
             payload = json.loads(response.read().decode("utf-8"))
         self.assertTrue(payload["ok"])
 
-    def test_index_and_module(self) -> None:
+    def test_index_serves_kiosk_ui(self) -> None:
+        """기본 문서는 MAP 키오스크 UI(video.html)여야 한다."""
         with urlopen(f"{self.base_url}/", timeout=2) as response:
             index = response.read().decode("utf-8")
-        self.assertIn("SafeAid TEST UI", index)
-        with urlopen(f"{self.base_url}/js/app.js", timeout=2) as response:
+        self.assertIn("video_app.js", index)
+        self.assertIn("mapCanvas", index)
+        with urlopen(f"{self.base_url}/video_app.js", timeout=2) as response:
             self.assertIn("text/javascript", response.headers["Content-Type"])
+
+    def test_legacy_medical_ui_is_gone(self) -> None:
+        """구 의료 도메인 TEST UI는 더 이상 서빙되지 않는다."""
+        for path in ("/js/app.js", "/js/api.js", "/js/features/inventory.js"):
+            with self.assertRaises(HTTPError) as context:
+                urlopen(f"{self.base_url}{path}", timeout=2)
+            self.assertEqual(context.exception.code, 404)
 
     def test_status_does_not_fake_connections(self) -> None:
         with urlopen(f"{self.base_url}/ui-api/status", timeout=3) as response:

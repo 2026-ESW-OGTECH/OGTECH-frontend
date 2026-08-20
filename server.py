@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""SafeAid TEST UI 정적 서버와 선택적 로컬 API 프록시.
+"""SafeAid 키오스크 UI 정적 서버와 선택적 로컬 API 프록시.
 
 외부 패키지 없이 동작한다. UI 서버는 모델을 직접 적재하지 않으며,
 `/backend/*` 요청만 지정된 SafeAid 백엔드로 전달한다.
+
+기본 문서 루트는 `MAP/시연용`이고 기본 문서는 `video.html`이다.
+구 의료 도메인 TEST UI는 2026-08-20에 저장소에서 제거했다.
 """
 
 from __future__ import annotations
@@ -24,6 +27,8 @@ from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parent
+UI_ROOT = ROOT / "MAP" / "시연용"
+INDEX_DOCUMENT = "video.html"
 MAX_REQUEST_BYTES = 12 * 1024 * 1024
 HOP_BY_HOP_HEADERS = {
     "connection",
@@ -45,6 +50,7 @@ class ServerConfig:
     stt_endpoint: str
     gps_endpoint: str
     modem_endpoint: str
+    index_document: str = INDEX_DOCUMENT
 
 
 class SafeAidUiServer(ThreadingHTTPServer):
@@ -57,7 +63,7 @@ class SafeAidUiServer(ThreadingHTTPServer):
 
 
 class SafeAidUiHandler(BaseHTTPRequestHandler):
-    server_version = "SafeAidTestUI/1.0"
+    server_version = "SafeAidKioskUI/1.0"
     protocol_version = "HTTP/1.1"
     _head_only = False
 
@@ -76,7 +82,7 @@ class SafeAidUiHandler(BaseHTTPRequestHandler):
     def _handle_get(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/health":
-            self._send_json({"ok": True, "service": "safeaid-test-ui"})
+            self._send_json({"ok": True, "service": "safeaid-kiosk-ui"})
             return
         if parsed.path == "/ui-api/status":
             self._send_json(self._status_payload())
@@ -101,7 +107,7 @@ class SafeAidUiHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _serve_static(self, request_path: str) -> None:
-        relative = unquote(request_path).lstrip("/") or "index.html"
+        relative = unquote(request_path).lstrip("/") or self.config.index_document
         candidate = (self.config.root / relative).resolve()
         try:
             common = os.path.commonpath((str(self.config.root.resolve()), str(candidate)))
@@ -240,9 +246,12 @@ def create_server(
     stt_endpoint: str = "",
     gps_endpoint: str = "",
     modem_endpoint: str = "",
+    root: str | os.PathLike[str] | None = None,
+    index_document: str = INDEX_DOCUMENT,
 ) -> SafeAidUiServer:
     config = ServerConfig(
-        root=ROOT,
+        root=Path(root).resolve() if root else UI_ROOT,
+        index_document=index_document,
         backend_url=backend_url.rstrip("/"),
         llm_health_url=llm_health_url,
         stt_endpoint=stt_endpoint,
@@ -253,7 +262,7 @@ def create_server(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="SafeAid TEST UI 경량 서버")
+    parser = argparse.ArgumentParser(description="SafeAid 키오스크 UI 경량 서버")
     parser.add_argument("--host", default=os.getenv("SAFEAID_UI_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("SAFEAID_UI_PORT", "8780")))
     parser.add_argument("--backend", default=os.getenv("SAFEAID_BACKEND_URL", "http://127.0.0.1:8765"))
@@ -261,6 +270,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stt-endpoint", default=os.getenv("SAFEAID_STT_ENDPOINT", ""))
     parser.add_argument("--gps-endpoint", default=os.getenv("SAFEAID_GPS_ENDPOINT", ""))
     parser.add_argument("--modem-endpoint", default=os.getenv("SAFEAID_MODEM_ENDPOINT", ""))
+    parser.add_argument(
+        "--root",
+        default=os.getenv("SAFEAID_UI_ROOT", ""),
+        help="정적 문서 루트. 비우면 MAP/시연용 을 쓴다.",
+    )
+    parser.add_argument(
+        "--index",
+        default=os.getenv("SAFEAID_UI_INDEX", INDEX_DOCUMENT),
+        help="기본 문서. 비우면 video.html 을 쓴다.",
+    )
     return parser.parse_args()
 
 
@@ -274,9 +293,11 @@ def main() -> None:
         stt_endpoint=args.stt_endpoint,
         gps_endpoint=args.gps_endpoint,
         modem_endpoint=args.modem_endpoint,
+        root=args.root or None,
+        index_document=args.index or INDEX_DOCUMENT,
     )
     host, port = server.server_address[:2]
-    print(f"SafeAid TEST UI: http://{host}:{port}")
+    print(f"SafeAid 키오스크 UI: http://{host}:{port}")
     print("종료: Ctrl+C")
     try:
         server.serve_forever(poll_interval=0.5)
