@@ -1,4 +1,4 @@
-# STM32F401RE ↔ Jetson Xavier NX 센서 연동
+# STM32H7A3ZI-Q ↔ Jetson Xavier NX 센서 연동
 
 이 문서는 `STM32 센서 허브 → Jetson 로컬 서버 → 7인치 제품 화면`을 실제 하드웨어에 올리는 절차다.
 인터넷 연결은 실행에 필요하지 않다. 펌웨어와 서버 코드는 구현됐지만 실제 센서·Jetson 결선 검증은
@@ -8,7 +8,7 @@
 
 ```mermaid
 flowchart LR
-  GPS["Air530 GNSS"] -->|"9600 8N1"| STM["STM32F401RE"]
+  GPS["Air530 GNSS"] -->|"9600 8N1"| STM["STM32H7A3ZI-Q"]
   SHT["SHT40 온습도"] -->|"I2C 0x44"| STM
   RTC["DS3231 RTC"] -->|"I2C 0x68 · UTC"| STM
   BMP["BMP390 기압"] -->|"I2C 0x77/0x76"| STM
@@ -33,7 +33,7 @@ CO 판정과 물리 경보는 STM32에서 끝난다. Jetson 전원이 꺼져도 
 
 Jetson 40핀 UART는 핀멀티플렉스·콘솔 설정 영향을 받는다. 시연에서는 USB 직렬 장치가 가장 단순하다.
 
-1. Nucleo-F401RE라면 ST-LINK USB를 Jetson에 연결한다. 보통 `/dev/ttyACM0`으로 보인다 `[미검증]`.
+1. NUCLEO-H7A3ZI-Q라면 ST-LINK USB를 Jetson에 연결한다. 보통 `/dev/ttyACM0`으로 보인다 `[미검증]`.
 2. 별도 USB-UART를 쓰면 **3.3 V TTL** 제품을 사용한다.
 3. USB-UART `TX → STM32 PA3(RX)`, `RX ← STM32 PA2(TX)`, `GND ↔ GND`로 연결한다.
 4. STM32를 별도 전원으로 구동할 때 USB-UART의 `VCC`는 연결하지 않는다. Nucleo의 USB 전원과 외부
@@ -51,7 +51,7 @@ ls -l /dev/serial/by-id/
 
 두 보드의 UART는 3.3 V 로직만 사용하고, 5 V TTL을 연결하지 않는다.
 
-| Jetson Xavier NX J12 | STM32F401RE | 의미 |
+| Jetson Xavier NX J12 | STM32H7A3ZI-Q | 의미 |
 |---|---|---|
 | 핀 8 `UART_TX` | PA3 `USART2_RX` | Jetson → STM32 |
 | 핀 10 `UART_RX` | PA2 `USART2_TX` | STM32 → Jetson |
@@ -199,29 +199,41 @@ PC9에 Jetson 전원을 직접 물리지 말고 정격에 맞는 MOSFET/load-swi
 펌웨어 위치:
 
 ```text
-OGTECH-embedded/stm32_smart_tray_controller/stm32_smart_tray_controller.ino
+OGTECH-embedded/Core/Inc/   air530_gps.h · dht11.h · ze16b_co.h · sensor_app.h
+OGTECH-embedded/Core/Src/   air530_gps.c · dht11.c · ze16b_co.c · sensor_app.c · main.c
 ```
 
-STM32duino 코어가 설치된 Arduino CLI 예시는 다음과 같다. FQBN은 Nucleo-F401RE 기준이다.
+**빌드는 STM32CubeIDE로 한다.** 2026-08-20에 펌웨어를 Arduino 스케치에서 STM32 HAL 구현으로
+교체했으므로 Arduino CLI / STM32duino 경로는 더 이상 쓰지 않는다.
 
-```bash
-cd OGTECH-embedded
-arduino-cli lib install "Adafruit BMP3XX Library@2.1.6"
-arduino-cli compile \
-  --fqbn STMicroelectronics:stm32:Nucleo_64:pnum=NUCLEO_F401RE \
-  stm32_smart_tray_controller
-arduino-cli upload \
-  --fqbn STMicroelectronics:stm32:Nucleo_64:pnum=NUCLEO_F401RE \
-  -p <ST-LINK 또는 업로드 포트> \
-  stm32_smart_tray_controller
+저장소에는 사용자 코드만 둔다. CubeMX 생성물(`main.h`, `stm32h7xx_it.c`,
+`stm32h7xx_hal_msp.c`, HAL 드라이버, `.ioc`, 링커 스크립트)은 포함하지 않으므로
+저장소만 clone해서는 빌드되지 않는다.
+
+1. CubeIDE에서 NUCLEO-H7A3ZI-Q 프로젝트를 만든다.
+2. USART1/2/3과 DHT11 데이터 핀을 설정한다. 핀 라벨은 반드시 `DHT11_DATA`로 지정한다.
+3. `Core/Inc`, `Core/Src`의 드라이버 4쌍을 프로젝트에 넣는다.
+4. 생성된 `main.c`의 USER CODE 영역에 `SensorApp_Init()`, `SensorApp_Process()`,
+   HAL UART 콜백 전달을 추가한다.
+
+빌드 크기와 실제 보드 동작은 아직 기록하지 않았다 `[미검증]`.
+이전에 적혀 있던 플래시 55,600 B / RAM 6,020 B는 **폐기된 Arduino 스케치의 F401RE 컴파일
+결과**이므로 현재 펌웨어의 수치가 아니다.
+
+시리얼 모니터는 `115200 8N1`로 연다 `[출처: 펌웨어]`. **2초마다** 아래와 같은 상태 한 줄이 나온다.
+
+```text
+DHT11=OK,TEMP=24.0C,HUM=41.0%,CO=0ppm,GPS=FIX,LAT=37.5417940,LON=127.0795160,SAT=9
+DHT11=ERROR,CO=WARMING_UP(18s),GPS=NOT_FOUND
 ```
 
-현재 빌드 결과는 플래시 **55,600 B (10%)**, 전역 RAM **6,020 B (6%)**다
-`[실측: Nucleo F401RE compile, 2026-08-19]`. 실제 보드 업로드와 센서·RTC·버튼·
-전원 gate 입출력은 아직 검증하지 않았다
-`[미검증]`.
+센서가 없으면 없다고 말한다. `CO=NOT_FOUND`는 유효 프레임이 3초 넘게 없을 때,
+`GPS=NOT_FOUND`는 NMEA가 5초 넘게 없을 때다. 값을 지어내지 않는다.
 
-시리얼 모니터는 `115200 8N1`로 연다 `[출처: 펌웨어]`. 1초마다 아래와 같은 한 줄 JSON이 나와야 한다.
+### 목표 형식 — 아직 구현하지 않았다
+
+Jetson 연동의 최종 목표는 아래 JSONL + CRC16이다. **현재 펌웨어는 이 형식을 내보내지 않는다**
+`[미구현]`. 아래는 구현 시 계약이며, Jetson 측 파서와 CRC 테스트는 이미 준비돼 있다.
 
 ```json
 {"v":1,"event":"telemetry","seq":123,"uptime_ms":456000,"gps":{"fix":true,"lat":37.5435,"lon":127.0767,"acc_m":null,"hdop":0.9,"sats":11,"age_s":0.2},"rtc":{"valid":true,"iso_utc":"2026-08-19T00:00:00Z","age_s":0.1},"env":{"valid":true,"sht_valid":true,"pressure_valid":true,"temp_c":23.45,"humidity_pct":58.20,"press_hpa":1007.4,"press_trend":"falling","age_s":0.1,"press_age_s":0.1,"bmp_address":119},"co":{"valid":true,"warming_up":false,"ppm":3.2,"level":"normal","alarm":false,"age_s":0.1},"power":{"valid":false,"percent":null,"days_left":null,"jetson_gate_on":true,"shutdown_pending":false},"crc16":"ABCD"}
