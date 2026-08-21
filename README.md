@@ -107,7 +107,7 @@ tests/             서버 스모크 테스트
 
 MAP/               ★ 오프라인 지도 엔진 (이 저장소의 핵심)
 ├─ app.py                    지도 API 서버
-├─ map_engine.py             GraphML · OSM XML → 보행로 그래프, 뷰포트 타일 캐시 상한
+├─ map_engine.py             GraphML · OSM XML → 보행로 그래프, 뷰포트 렌더 표본 상한(공간 균등 샘플링)
 ├─ gps_service.py            Air530 NMEA 파싱, fix 여부 · 위성 수 · 정확도
 ├─ navigation_service.py     트레일 이탈 판정, 복귀 방위 · 거리
 ├─ position_history.py       이동 경로 자동 기록, 체크포인트 역추적
@@ -173,7 +173,7 @@ Chromium이 llama-server와 GPU·통합 메모리를 나눠 씁니다.
 
 - `backdrop-filter`, 큰 blur 그림자, `filter()` 금지. 깊이는 1 px 하드 라인으로만 냅니다.
 - 외부 폰트·CDN·프레임워크 런타임을 추가하지 않습니다. **네트워크가 없습니다.**
-- 지도 타일 캐시에 상한을 겁니다. 무제한 캐싱은 그대로 OOM입니다.
+- 지도 렌더 엣지 수에 상한을 겁니다(뷰포트당 공간 균등 표본 12,000개). 무제한 렌더링은 그대로 OOM입니다.
 - STT · LLM · TTS · 지도 렌더링을 동시에 실행하지 않고 순차 실행합니다.
 
 ## 검증
@@ -186,7 +186,7 @@ cd MAP && python -B -m unittest discover -s tests # 지도 엔진 (networkx==3.1
 | 대상 | 결과 |
 |---|---|
 | `tests/` | 5 tests, OK `[실측: 2026-08-20]` |
-| `MAP/tests/` | 80 tests, **1 failure** `[실측: 2026-08-20]` |
+| `MAP/tests/` | 80 tests, 전부 통과 `[실측: 2026-08-20]` |
 
 남은 실패 1건은 `/api/power/shutdown-cancel`의 오류 문구와 테스트 단언이 어긋난 건입니다.
 422 반환과 거부 동작 자체는 정상이며, 문구 정합만 남았습니다.

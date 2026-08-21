@@ -6,12 +6,13 @@
 ## 최종 데이터 경로
 
 ```text
-Air530 9600 NMEA → STM32 USART1 → 1 Hz 통합 JSONL + CRC16
+Air530 9600 NMEA → STM32 USART1 → 2초 주기 통합 JSONL + CRC16
 → Jetson USB 직렬 115200 → gps_service.py → /api/device/events → /product/
 ```
 
-STM32 모드는 연결 직후 `STREAM ON`을 한 번 전송하고 GPS·SHT40·CO 통합 텔레메트리를 연속 수신한다
-`[출처: gps_service.py]`. `GET_FIX`는 이전 도구 호환용으로 남아 있다.
+STM32 모드는 연결 직후 `STREAM ON`을 한 번 전송하고 GPS·온습도·CO 통합 텔레메트리를 연속 수신한다
+`[출처: gps_service.py]`. 펌웨어 쪽 JSONL 구현은 2026-08-21 완료(호스트 계약 테스트 통과,
+실장 `[미검증]` — STM32_JETSON_SETUP.md 6절). `GET_FIX`는 이전 도구 호환용으로 남아 있다.
 
 ## 하드웨어 전 확인
 

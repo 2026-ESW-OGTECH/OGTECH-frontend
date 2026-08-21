@@ -1,6 +1,6 @@
 # SafeAid 오프라인 지도·STM32 센서 앱
 
-Jetson Xavier NX에서 STM32H7A3ZI-Q 센서 허브의 GPS·온습도·기압·CO·RTC·물리 버튼을 받아 7인치 화면에
+Jetson Xavier NX에서 STM32H7A3ZI-Q (Nucleo-H7A3ZI-Q) 센서 허브의 GPS·온습도·기압·CO·RTC·물리 버튼을 받아 7인치 화면에
 표시하고, 오프라인 보행 지도에서 경로·트레일 이탈·일출몰·베이스캠프 귀환 권고 시각을 계산하는 로컬 앱이다.
 센서·버튼·전원 gate의 실제 하드웨어 동작은 모두 아직 `[미검증]`이며, 아래 내용은 현재 소스 코드의 계약이다.
 
@@ -26,6 +26,7 @@ Jetson Xavier NX에서 STM32H7A3ZI-Q 센서 허브의 GPS·온습도·기압·CO
 - SHT40 온도·습도, BMP390 기압·추세, ZE07-CO ppm·예열·경보 표시
 - DS3231 `0x68` UTC를 표시하되 OSF 또는 날짜·시간 검증 실패 시 `rtc.valid=false`로 fail-closed 처리
 - BMP390 `0x77` 우선·`0x76` 차순 탐색, `pressure_valid`와 10분 이상 표본의 `press_trend` 분리 표시
+- 현재 실장 센서는 DHT11(온·습도)·ZE16B-CO(CO)·Air530(GNSS)이며, 위 SHT40·BMP390·ZE07-CO·DS3231 항목은 향후 적용 예정(현재 미연결) 센서에 대한 코드 계약이다
 - 센서 입력이 3초 넘게 멈추면 live 상태 해제 `[출처: gps_service.py]`
 - 보행로 노드가 아니라 **선분**까지의 트레일 이탈 거리 계산
 - 일출·일몰·시민박명 완전 오프라인 계산
@@ -40,7 +41,7 @@ Jetson Xavier NX에서 STM32H7A3ZI-Q 센서 허브의 GPS·온습도·기압·CO
 JetPack 5.1.x 환경에서:
 
 ```bash
-cd OGTECH-llm/MAP
+cd OGTECH-frontend/MAP
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt
@@ -113,11 +114,10 @@ Co-LLM은 저장된 지점의 이름/ID에 대응하는 열거형 action만 호�
 python -B -m unittest discover -s tests -v
 ```
 
-현재 결과는 `76/76` 통과 `[실측: 2026-08-19]`이다. 테스트는 지도 회귀, NMEA/STM32 fix 호환, 텔레메트리 CRC 손상
+현재 결과는 80개 전부 통과 `[실측: 2026-08-20]`이다. 테스트는 지도 회귀, NMEA/STM32 fix 호환, 텔레메트리 CRC 손상
 거부, stale 센서, 선분 이탈 거리, 저장 지점·귀환 시각, 서울 일출몰과 극지 예외, 음성 action·부팅
 진단·제품 화면, DS3231 UTC·stale·OSF 경계, BMP390 확인 상태, 물리 버튼·전원 ACK, 3분 전 위치 역추적을 포함한다. 경로 cache는 `test_crossing_route_cache_is_rejected_until_progress_disambiguates_it`,
 `test_overlapping_route_cache_uses_late_progress_to_disambiguate`,
 `test_route_cache_includes_exact_eight_meter_boundary`, `test_route_cache_recomputes_above_eight_meter_boundary`로
 자기교차/겹침 진행량 disambiguation, 정확히 8 m 포함, 8 m 초과 재경로를 검증하며 zero-length polyline 경계도
-검증한다. 브라우저 증거는
-[`test-results/product_ui_1024x600.json`](test-results/product_ui_1024x600.json)이다.
+검증한다.

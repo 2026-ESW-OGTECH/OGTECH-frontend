@@ -346,52 +346,70 @@ class AppHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:  # noqa: N802 - 표준 라이브러리 규약
-        path = urlsplit(self.path).path
-        if path == "/api/health":
-            self._json(HTTPStatus.OK, {"status": "ok", "offline": True})
-            return
-        if path == "/api/map":
-            self._json(HTTPStatus.OK, self.registry.overview())
-            return
-        if path == "/api/import-status":
-            self._json(HTTPStatus.OK, self.registry.import_status())
-            return
-        if path == "/api/gps":
-            self._json(HTTPStatus.OK, self.gps.snapshot())
-            return
-        if path == "/api/gps/ports":
-            self._json(HTTPStatus.OK, {"ports": self.gps.ports()})
-            return
-        if path == "/api/gps/events":
-            self._gps_events()
-            return
-        if path == "/api/buttons":
-            self._json(HTTPStatus.OK, self.gps.snapshot()["hardware_buttons"])
-            return
-        if path == "/api/buttons/events":
-            self._button_events()
-            return
-        if path == "/api/device":
-            self._json(HTTPStatus.OK, self.navigation.snapshot())
-            return
-        if path == "/api/diagnostics":
-            self._json(HTTPStatus.OK, self._diagnostics())
-            return
-        if path == "/api/device/events":
-            self._device_events()
-            return
-        if path == "/api/waypoints":
-            self._json(HTTPStatus.OK, self.navigation.waypoints.snapshot())
-            return
-        if path == "/api/voice":
-            self._json(HTTPStatus.OK, self.navigation.voice_snapshot())
-            return
-        if path == "/api/voice/events":
-            self._voice_events()
-            return
-        if path == "/":
-            path = "/index.html"
-        self._static(path)
+        try:
+            path = urlsplit(self.path).path
+            if path == "/api/health":
+                self._json(HTTPStatus.OK, {"status": "ok", "offline": True})
+                return
+            if path == "/api/map":
+                self._json(HTTPStatus.OK, self.registry.overview())
+                return
+            if path == "/api/import-status":
+                self._json(HTTPStatus.OK, self.registry.import_status())
+                return
+            if path == "/api/gps":
+                self._json(HTTPStatus.OK, self.gps.snapshot())
+                return
+            if path == "/api/gps/ports":
+                self._json(HTTPStatus.OK, {"ports": self.gps.ports()})
+                return
+            if path == "/api/gps/events":
+                self._gps_events()
+                return
+            if path == "/api/buttons":
+                self._json(HTTPStatus.OK, self.gps.snapshot()["hardware_buttons"])
+                return
+            if path == "/api/buttons/events":
+                self._button_events()
+                return
+            if path == "/api/device":
+                self._json(HTTPStatus.OK, self.navigation.snapshot())
+                return
+            if path == "/api/diagnostics":
+                self._json(HTTPStatus.OK, self._diagnostics())
+                return
+            if path == "/api/device/events":
+                self._device_events()
+                return
+            if path == "/api/waypoints":
+                self._json(HTTPStatus.OK, self.navigation.waypoints.snapshot())
+                return
+            if path == "/api/voice":
+                self._json(HTTPStatus.OK, self.navigation.voice_snapshot())
+                return
+            if path == "/api/voice/events":
+                self._voice_events()
+                return
+            if path == "/":
+                path = "/index.html"
+            self._static(path)
+
+        except (
+            GpsInputError,
+            NavigationInputError,
+            MapValidationError,
+            RouteNotFound,
+            SnapOutOfBounds,
+        ) as exc:
+            self._error_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)})
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass  # 클라이언트가 먼저 끊음 - SSE 스트림 등
+        except Exception as exc:
+            print(f"요청 처리 실패: {exc}")
+            self._error_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"error": "요청 처리 중 내부 오류가 발생했습니다"},
+            )
 
     @staticmethod
     def _wav_ready(path: Path) -> bool:
@@ -607,7 +625,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     raise GpsInputError("전원 종료 취소에는 인자를 사용할 수 없습니다")
                 if not self.gps.request_stm32_power_shutdown_cancel():
                     raise GpsInputError(
-                        "취소할 STM32 전원 종료 transaction이 없습니다"
+                        "취소할 STM32 전원 종료 transaction이 없습니다 (POWER OFF ACK 대기 없음)"
                     )
                 self._json(
                     HTTPStatus.OK,
@@ -627,10 +645,12 @@ class AppHandler(BaseHTTPRequestHandler):
             RouteNotFound,
             SnapOutOfBounds,
         ) as exc:
-            self._json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)})
+            self._error_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)})
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
         except Exception as exc:
             print(f"요청 처리 실패: {exc}")
-            self._json(
+            self._error_json(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 {"error": "요청 처리 중 내부 오류가 발생했습니다"},
             )
@@ -826,6 +846,16 @@ class AppHandler(BaseHTTPRequestHandler):
             pass
         finally:
             self.navigation.unsubscribe_voice(subscriber)
+
+    def end_headers(self) -> None:
+        # 응답 헤더가 한 번이라도 나가면 이후 예외에서 _json 재응답을 막는다(SSE 스트림 보호).
+        self._response_started = True
+        super().end_headers()
+
+    def _error_json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
+        if getattr(self, "_response_started", False):
+            return  # 이미 응답(헤더)이 나간 뒤 — 프로토콜을 오염시키지 않고 조용히 종료
+        self._json(status, payload)
 
     def _json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")

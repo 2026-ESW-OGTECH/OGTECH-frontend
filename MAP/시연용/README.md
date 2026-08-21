@@ -5,10 +5,14 @@
 
 ## 표시 데이터
 
-- STM32 텔레메트리: GPS, SHT40 온도·습도, ZE07-CO, 향후 전원 계측
+- STM32 텔레메트리: GPS, DHT11 온도·습도, ZE16B-CO, 향후 전원 계측
 - 코드 계산: 트레일 선분 이탈 거리, 목적지·베이스캠프 경로·방위·거리
 - 오프라인 계산: 현재 좌표의 일출·일몰·시민박명, 베이스캠프 귀환 권고 시각
 - 저장 지점: 목적지, 베이스캠프, 체크포인트
+
+현재 실장 부품은 DHT11(온·습도)·ZE16B-CO(CO)·Air530(GNSS)이다. 이전 계획의 SHT40·ZE07-CO는 교체됐고
+BMP390(기압)·DS3231(RTC)은 아직 미연결이다 `[출처: OGTECH-embedded/README.md]`. 텔레메트리 필드
+이름(`env.sht_valid` 등)은 옛 부품 이름을 그대로 쓰지만 데이터 출처는 위 현행 부품이다.
 
 화면은 `/api/device/events`의 Server-Sent Events를 받으므로 상시 폴링하지 않는다. 좌표·경로·방위·거리·
 귀환 시각은 Python 지도/태양 계산 코드가 만들며 LLM은 생성할 수 없다.
@@ -27,6 +31,10 @@ python app.py --gps-mode stm32 --gps-port /dev/ttyACM0 --gps-baud 115200
 Chromium에서 `http://127.0.0.1:8790/product/`을 연다.
 
 전체 배선·Jetson 설치·자동 시작 절차는 [STM32_JETSON_SETUP.md](../STM32_JETSON_SETUP.md)를 따른다.
+
+> 펌웨어가 `gps_service.py`와 같은 JSONL+CRC16 프로토콜을 쓰도록 2026-08-21에 맞췄다(호스트
+> 계약 테스트 통과). 실물 보드 연동은 아직 `[미검증]`이라, JSONL 펌웨어를 플래시한 보드가 있어야
+> `--gps-mode stm32`에서 실제 센서 값이 올라온다. 검증 근거와 남은 절차는 위 문서 6절에 있다.
 
 ## DEMO 표식
 
