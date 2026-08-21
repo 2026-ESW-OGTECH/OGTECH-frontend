@@ -7,7 +7,7 @@
 
 | 정본 | 다루는 범위 |
 |---|---|
-| `OGTECH-embedded/stm32_sentinel/stm32_sentinel.c` | 펌웨어가 실제로 하는 일 (핀·보율·문자열·임계값) |
+| `OGTECH-embedded/Core/` (`Inc`·`Src`) | 펌웨어가 실제로 하는 일 (핀·보율·문자열·임계값) — 드라이버·통합 계층·프로토콜 모듈 |
 | `OGTECH-embedded/README.md` | 구현/미구현 경계와 검증 상태 |
 | `MAP/gps_service.py`, `MAP/jetson/` | Jetson 측 파서와 실행 절차 |
 
@@ -20,7 +20,7 @@
 - 보드: **NUCLEO-H7A3ZI-Q (STM32H7A3ZI-Q)** — Nucleo-144 폼팩터
 - 빌드: **STM32CubeIDE + HAL**. Arduino IDE/CLI·PlatformIO로는 빌드되지 않는다
   `[출처: OGTECH-embedded/README.md]`
-- 저장소에 있는 것: 사용자 코드 `stm32_sentinel/stm32_sentinel.c` 한 개뿐
+- 저장소에 있는 것: 사용자 코드 `Core/Inc`·`Core/Src` — 드라이버(`air530_gps`·`dht11`·`ze16b_co`·`co_alarm`·`jetson_gate`·`console`), 프로토콜(`telemetry_protocol`), 통합 계층(`sensor_app`), 진입점(`main.c`)
 - 저장소에 **없는 것**: `.ioc`, `main.h`, HAL 드라이버, CubeIDE 프로젝트 파일
 
 ### CubeIDE 프로젝트 생성 시 주의
@@ -29,8 +29,10 @@
    STM32H7A3ZI와는 패키지·SMPS 전원 구성이 다르므로 잘못 고르면 클럭·전원 초기화가 어긋난다.
 2. 콘솔용 USART3는 Nucleo-144의 ST-LINK 가상 COM 포트에 연결되어 있다. CubeMX 기본 설정을
    그대로 두면 별도 배선 없이 USB 한 개로 콘솔이 나온다.
-3. `stm32_sentinel.c`는 CubeIDE가 생성한 `main.c`를 대체하는 형태다. `main.h`의 심볼
-   `DHT11_DATA_Pin` / `DHT11_DATA_GPIO_Port`를 CubeMX의 User Label로 만들어 두어야 컴파일된다.
+3. `Core/Src/main.c`는 CubeIDE가 생성한 `main.c`의 USER CODE 영역에 `SensorApp_Init()`·
+   `SensorApp_Process()`·UART 콜백 전달만 얹은 형태다. `main.h`의 심볼
+   `DHT11_DATA_Pin` / `DHT11_DATA_GPIO_Port`를 CubeMX의 User Label로 만들어 두어야 컴파일되고,
+   `Core/Inc`·`Core/Src`의 모듈 **전부**를 프로젝트 소스에 추가해야 한다.
 
 > **재현성 남은 과제 (팀 과제)** — 제3자가 저장소만으로 빌드할 수 있도록 CubeIDE 프로젝트 전체
 > (`.ioc`, `main.h`, 프로젝트 파일)를 `OGTECH-embedded`에 커밋해야 한다. 프로젝트가 커밋되기
@@ -66,7 +68,7 @@ Jetson의 화면 경보음은 보조 출력일 뿐이다.
 | **PB0** | `GPIO_MODE_OUTPUT_PP`, 초기값 LOW, `HIGH=ON` | 부저 | 코드에 하드코딩 |
 | **PC9** | `GPIO_MODE_OUTPUT_PP`, 초기값 HIGH, active-high | Jetson 전원 MOSFET 게이트 | 코드에 하드코딩 |
 
-`stm32_sentinel.c`가 스스로 결정하는 핀은 **PB0과 PC9 두 개뿐**이다. 나머지 UART 핀 배정은
+펌웨어가 스스로 결정하는 핀은 **PB0(`co_alarm.c`)과 PC9(`jetson_gate.c`) 두 개뿐**이다. 나머지 UART 핀 배정은
 CubeMX가 생성하는 `HAL_UART_MspInit`(별도 파일)에 있고, DHT11 핀은 `main.h` 매크로다.
 저장소에 그 파일들이 없으므로 이 문서는 물리 핀 번호를 단정하지 않는다.
 
@@ -191,7 +193,7 @@ DHT11 판독과 텔레메트리 송출이 같은 주기에 묶여 있다. 마지
 
 `co.level`은 `unknown`(데이터 없음)/`normal`/`warning`(WARN)/`alarm`(ALARM)으로 4절 경보
 상태기를 그대로 비춘다. 이벤트 3종(`telemetry`/`output`/`power`)의 정본 스키마는
-`MAP/gps_service.py`의 파서이고, 펌웨어 쪽 구현은 `OGTECH-embedded/stm32_sentinel/telemetry_protocol.c`다.
+`MAP/gps_service.py`의 파서이고, 펌웨어 쪽 구현은 `OGTECH-embedded/Core/Src/telemetry_protocol.c`다.
 
 ### 명령
 
@@ -285,7 +287,7 @@ Jetson으로 옮겨야 하는 폴더는 세 개다.
 ```text
 OGTECH-frontend/MAP/            → /opt/safeaid/MAP
 OGTECH-llm/Co-LLM/              → /opt/safeaid/Co-LLM
-OGTECH-embedded/stm32_sentinel/ → 재플래시·참조용
+OGTECH-embedded/Core/           → 재플래시·참조용
 ```
 
 ```bash
@@ -428,7 +430,7 @@ journalctl -u smartaid-kiosk.service -f
 `OGTECH-embedded/tests/`의 호스트 테스트가 **양쪽 실물 코드**를 맞물린다.
 
 1. `tests/host/test_protocol.c` — CRC 표준 벡터(`"123456789"` → `0x29B1`)와 이벤트 3종 골든 JSON.
-2. `tests/host/test_firmware_sim.c` — mock HAL 위에서 `stm32_sentinel.c` **전체를 그대로 컴파일**해
+2. `tests/host/test_firmware_sim.c` — mock HAL 위에서 `Core/Src` 전체(드라이버·통합 계층·`main.c`)를 **그대로 컴파일**해
    명령 링버퍼 → 응답 경로를 구동(과길이 폐기·watchdog·gate 전이 포함).
 3. `tests/test_protocol_contract.py` — 시뮬레이터가 낸 USART3 출력을 이 저장소의
    `gps_service.py` 파서에 그대로 먹여 왕복 검증(값 정규화·seq 연속성·CRC 동치·오염 바이트 거부).
@@ -548,7 +550,7 @@ SET RTC UTC YYYY-MM-DDTHH:MM:SSZ   ← DS3231 연결 후
 
 현재 실장 부품 기준이다. 미구현 항목은 7절에 있고 체크리스트에 넣지 않는다.
 
-- [ ] CubeIDE 프로젝트(`.ioc`, `main.h`, `telemetry_protocol.c/.h` 포함) 커밋 후 클린 빌드 성공, 플래시/RAM 사용량 기록
+- [ ] CubeIDE 프로젝트(`.ioc`, `main.h`; `Core/Inc`·`Core/Src` 모듈 전부 포함) 커밋 후 클린 빌드 성공, 플래시/RAM 사용량 기록
 - [ ] 부팅 배너 3줄 확인
 - [ ] 2초 주기 JSONL 텔레메트리가 끊기지 않고 이어지는지 (10분 연속, `seq` 결번 없음)
 - [ ] `PING` → `PONG` 왕복 · `STREAM OFF` → `STATUS` 사람용 줄 → `STREAM ON` 복귀
