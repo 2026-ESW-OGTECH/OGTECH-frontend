@@ -276,7 +276,7 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertTrue(voice["contract"]["enum_actions_only"])
         self.assertFalse(voice["contract"]["coordinates_accepted_from_voice"])
 
-    def test_video_screen_is_explicit_demo_and_uses_konkuk_pois(self) -> None:
+    def test_video_screen_uses_konkuk_pois_and_glance_layout(self) -> None:
         connection = HTTPConnection("127.0.0.1", self.port, timeout=5.0)
         try:
             connection.request("GET", "/video/")
@@ -285,7 +285,19 @@ class GpsApiIntegrationTest(unittest.TestCase):
         finally:
             connection.close()
         self.assertEqual(response.status, 200)
-        self.assertEqual(html.count("DEMO"), 1)
+        # 2026-08-29: CO 농도 칸의 'CO 전용 · DEMO' 문구 제거. 화면 어디에도 DEMO 배지가 없다.
+        self.assertNotIn("CO 전용", html)
+        self.assertEqual(html.count("DEMO"), 0)
+        self.assertIn('id="coValue">0 ppm', html)
+        # 온도·습도는 각각 id를 가진 별도 요소이고, 온도는 data-level로 색을 정한다.
+        self.assertIn('id="envTemperature" class="env-temperature" data-level="warm"', html)
+        self.assertIn('id="envHumidity" class="sub env-humidity"', html)
+        # 경로 이탈 경고 배너는 숨김 상태로 존재한다.
+        self.assertIn('id="routeAlert" role="alert" hidden', html)
+        self.assertIn("경로 이탈", html)
+        # 하단 버튼 4개는 그대로다.
+        for button in ("btnDestination", "btnCheckpoint", "btnBasecamp", "btnNight"):
+            self.assertEqual(html.count(f'id="{button}"'), 1)
         self.assertIn("video_app.js", html)
         self.assertIn("공학관", html)
         self.assertIn("일감호", html)
@@ -339,6 +351,13 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertIn('canvas.addEventListener("click", selectMapDestination)', video_app)
         self.assertIn("귀환 권고 시각과 베이스캠프 경로를 확인하세요", video_app)
         self.assertNotIn("돌아가세요", video_app)
+        self.assertNotIn("CO 전용 · DEMO", video_app)
+        self.assertIn("const ROUTE_DEVIATION_THRESHOLD_M = 30", video_app)
+        self.assertIn("function routeOffsetMeters(", video_app)
+        self.assertIn("function routeDeviation(", video_app)
+        self.assertIn("경로 이탈 · ${Math.round(deviation.offsetM)} m · 현재 위치와 경로를 확인하세요", video_app)
+        self.assertIn("function temperatureLevel(", video_app)
+        self.assertIn('event.key === "d" || event.key === "D"', video_app)
         self.assertIn('playFixedAudio("arrival")', video_app)
         self.assertIn('playFixedAudio("basecamp")', video_app)
         self.assertIn("베이스캠프가 등록되었습니다.", video_app)
@@ -371,7 +390,6 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertIn("const etaTimeFormatter", video_app)
         self.assertIn("remainingSeconds / 60", video_app)
         self.assertIn("예상 도착", video_app)
-        self.assertIn("CO 전용 · DEMO", video_app)
         self.assertNotIn('"#glanceRoute"', video_app)
         self.assertIn('const targetLabel = scene.target === "basecamp" ? "BASE CAMP" : "목적지"', video_app)
         self.assertIn('document.querySelector("#currentLatitude")', video_app)

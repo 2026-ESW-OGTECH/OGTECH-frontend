@@ -33,13 +33,12 @@
         </section>
         <section class="glance glance-env" id="glanceEnv" data-state="caution">
           <p class="stencil">ENVIRONMENT</p>
-          <strong>30.0°C (86.0°F)</strong>
-          <span class="sub">55% RH</span>
+          <strong id="envTemperature" class="env-temperature" data-level="warm">30.0°C (86.0°F)</strong>
+          <span id="envHumidity" class="sub env-humidity">55% RH</span>
         </section>
         <section class="glance glance-co" id="glanceCo" data-state="caution">
           <p class="stencil">CO 농도</p>
-          <strong>0 ppm</strong>
-          <span class="sub">CO 전용 · DEMO</span>
+          <strong id="coValue">0 ppm</strong>
         </section>
       </header>
 
@@ -49,6 +48,11 @@
         <div class="alert" id="alert" role="alert" hidden>
           <span class="alert-dot" aria-hidden="true"></span>
           <strong id="alertText">일조 잔여 시간을 계산하고 있습니다.</strong>
+        </div>
+
+        <div class="alert alert-route" id="routeAlert" role="alert" hidden>
+          <span class="alert-dot" aria-hidden="true"></span>
+          <strong id="routeAlertText">경로 이탈 · 현재 위치와 경로를 확인하세요</strong>
         </div>
 
         <section class="arrival-card" id="arrivalCard" role="status" aria-live="polite" hidden>
@@ -122,7 +126,7 @@
         <li><b>6</b> BASE CAMP 복귀 재생</li>
         <li><b>7</b> BASE CAMP 도착</li>
       </ol>
-      <p><b>A</b> 전체 자동 시연 · <b>Space</b> 다음 · <b>B</b> 음성 재생 · <b>T</b> 일몰 답변 · <b>R</b> 처음 · <b>N</b> 야간</p>
+      <p><b>A</b> 전체 자동 시연 · <b>Space</b> 다음 · <b>B</b> 음성 재생 · <b>T</b> 일몰 답변 · <b>R</b> 처음 · <b>N</b> 야간 · <b>D</b> 경로 이탈</p>
       <p>좌표·센서 값은 촬영용 시나리오 값입니다. 화면 아래 버튼은 제품 조작 흐름과 동일합니다.</p>
     </aside>
   </div>

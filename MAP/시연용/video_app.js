@@ -1,14 +1,20 @@
 /* SafeAid 건국대학교 시연 영상 전용 MAP — 1024x600
  *
- * 이 화면의 현재 위치·센서 값은 촬영용 합성값이다. 그래서 CO 농도 칸에 DEMO 배지를 표시하고
- * 녹색 LIVE 상태를 쓰지 않는다. 공개 POI와 보행망은 오프라인 파일이며, 경로·방위·거리는
- * 아래 코드와 map_engine이 계산한다. LLM은 좌표나 숫자를 생성하지 않는다.
+ * 이 화면의 현재 위치·센서 값은 촬영용 합성값이다. 그래서 녹색 LIVE 상태를 쓰지 않는다.
+ * 공개 POI와 보행망은 오프라인 파일이며, 경로·방위·거리·경로 이탈 거리는 아래 코드와
+ * map_engine이 계산한다. LLM은 좌표나 숫자를 생성하지 않는다.
  */
 
 "use strict";
 
 const OFFICIAL_ZENITH_DEG = 90.833;
 const SEOUL_TIME_ZONE = "Asia/Seoul";
+// navigation_service.TRAIL_THRESHOLD_M 기본값(30 m)과 같은 기준으로 경로 이탈을 판정한다.
+const ROUTE_DEVIATION_THRESHOLD_M = 30;
+// D 키 시연용 이탈 거리. 임계값을 확실히 넘도록 1.5배로 둔다.
+const ROUTE_DEVIATION_DEMO_OFFSET_M = 45;
+// 촬영 시나리오 고정 환경값. 기온 색: 30°C 초과 적색, 20~30°C 황색, 20°C 이하 녹색.
+const SCENARIO_ENVIRONMENT = Object.freeze({ temperatureC: 30.0, humidityPct: 55 });
 
 const FALLBACK_MAP = {
   name: "건국대학교 · 공학관 ↔ 일감호",
@@ -114,6 +120,8 @@ const state = {
   checkpoint: null,
   destinationSelecting: false,
   daylightAlertSnapshot: null,
+  environment: { ...SCENARIO_ENVIRONMENT },
+  routeDeviationDemo: false,
 };
 
 const walk = {
@@ -289,6 +297,73 @@ function pointAlong(coordinates, meters) {
   return { lon: last[0], lat: last[1], done: true };
 }
 
+// 점을 방위각 방향으로 meters만큼 옮긴 좌표(구면 정방향 계산).
+function offsetPoint(point, bearingDeg, meters) {
+  const angular = meters / EARTH_RADIUS_M;
+  const bearing = toRad(bearingDeg);
+  const lat1 = toRad(point.lat);
+  const lon1 = toRad(point.lon);
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(angular) + Math.cos(lat1) * Math.sin(angular) * Math.cos(bearing)
+  );
+  const lon2 = lon1 + Math.atan2(
+    Math.sin(bearing) * Math.sin(angular) * Math.cos(lat1),
+    Math.cos(angular) - Math.sin(lat1) * Math.sin(lat2)
+  );
+  return { lon: toDeg(lon2), lat: toDeg(lat2) };
+}
+
+// 점에서 선분까지의 최단 거리(m). 수백 m 범위라 국지 등장방형 투영으로 충분하다.
+function distanceToSegmentMeters(point, from, to) {
+  const metersPerDegLat = 111320;
+  const metersPerDegLon = 111320 * Math.cos(toRad(point.lat));
+  const ax = (from[0] - point.lon) * metersPerDegLon;
+  const ay = (from[1] - point.lat) * metersPerDegLat;
+  const bx = (to[0] - point.lon) * metersPerDegLon;
+  const by = (to[1] - point.lat) * metersPerDegLat;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSquared = dx * dx + dy * dy;
+  const t = lengthSquared === 0
+    ? 0
+    : Math.min(1, Math.max(0, -(ax * dx + ay * dy) / lengthSquared));
+  return Math.hypot(ax + dx * t, ay + dy * t);
+}
+
+function nearestRouteSegment(point, coordinates) {
+  if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
+  let nearest = null;
+  for (let index = 1; index < coordinates.length; index += 1) {
+    const distance = distanceToSegmentMeters(point, coordinates[index - 1], coordinates[index]);
+    if (!nearest || distance < nearest.distance) {
+      nearest = { distance, from: coordinates[index - 1], to: coordinates[index] };
+    }
+  }
+  return nearest;
+}
+
+function routeOffsetMeters(point, coordinates) {
+  const nearest = nearestRouteSegment(point, coordinates);
+  return nearest ? nearest.distance : null;
+}
+
+function activeRoute() {
+  return state.scene.route ? state.map[state.scene.route] || null : null;
+}
+
+// 활성 경로가 없으면 판정하지 않는다(null). 있으면 이탈 여부와 거리를 돌려준다.
+function routeDeviation(point) {
+  const route = activeRoute();
+  if (!route || !point) return null;
+  const offsetM = routeOffsetMeters(point, route);
+  if (offsetM === null) return null;
+  return {
+    offRoute: offsetM > ROUTE_DEVIATION_THRESHOLD_M,
+    offsetM,
+    thresholdM: ROUTE_DEVIATION_THRESHOLD_M,
+  };
+}
+
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
@@ -426,7 +501,9 @@ function drawAccuracyRing(point, projector) {
 
 function drawNorthArrow(projector) {
   const x = projector.rect.width - 42;
-  const y = state.scene.alert ? 116 : 44;
+  const banners = (state.scene.alert ? 1 : 0)
+    + (document.querySelector("#routeAlert").hidden ? 0 : 1);
+  const y = 44 + 72 * banners;
   context.save();
   context.translate(x, y);
   context.fillStyle = cssVar("--muted");
@@ -443,8 +520,22 @@ function drawNorthArrow(projector) {
   context.restore();
 }
 
-function currentPoint() {
+function basePoint() {
   return walk.position || state.map[state.scene.current];
+}
+
+// D 키 시연 중에는 현재 위치를 가장 가까운 경로 선분의 직각 방향으로 밀어낸다.
+function currentPoint() {
+  const base = basePoint();
+  const route = activeRoute();
+  if (!state.routeDeviationDemo || !route || !base) return base;
+  const nearest = nearestRouteSegment(base, route);
+  if (!nearest) return base;
+  const along = bearingDegrees(
+    { lon: nearest.from[0], lat: nearest.from[1] },
+    { lon: nearest.to[0], lat: nearest.to[1] }
+  );
+  return offsetPoint(base, along + 90, ROUTE_DEVIATION_DEMO_OFFSET_M);
 }
 
 function draw() {
@@ -531,7 +622,46 @@ function setGlance(id, stateName, value, sub) {
   const element = document.querySelector(id);
   element.dataset.state = stateName;
   element.querySelector("strong").textContent = value;
-  element.querySelector(".sub").textContent = sub;
+  const subElement = element.querySelector(".sub");
+  if (subElement && sub !== undefined) subElement.textContent = sub;
+}
+
+function temperatureLevel(celsius) {
+  const value = Number(celsius);
+  if (!Number.isFinite(value)) return "none";
+  if (value > 30) return "hot";
+  if (value > 20) return "warm";
+  return "cool";
+}
+
+function formatTemperature(celsius) {
+  const fahrenheit = celsius * 9 / 5 + 32;
+  return `${celsius.toFixed(1)}°C (${fahrenheit.toFixed(1)}°F)`;
+}
+
+function setEnvironmentGlance(environment) {
+  const temperature = document.querySelector("#envTemperature");
+  const humidity = document.querySelector("#envHumidity");
+  temperature.dataset.level = temperatureLevel(environment.temperatureC);
+  temperature.textContent = Number.isFinite(environment.temperatureC)
+    ? formatTemperature(environment.temperatureC)
+    : "—";
+  humidity.textContent = Number.isFinite(environment.humidityPct)
+    ? `${Math.round(environment.humidityPct)}% RH`
+    : "— RH";
+}
+
+function setRouteAlert(current) {
+  const deviation = routeDeviation(current);
+  const routeAlert = document.querySelector("#routeAlert");
+  if (deviation && deviation.offRoute) {
+    document.querySelector("#routeAlertText").textContent =
+      `경로 이탈 · ${Math.round(deviation.offsetM)} m · 현재 위치와 경로를 확인하세요`;
+    routeAlert.hidden = false;
+  } else {
+    routeAlert.hidden = true;
+  }
+  document.querySelector("#mapPanel").classList.toggle("has-route-alert", !routeAlert.hidden);
 }
 
 const seoulClockFormatter = new Intl.DateTimeFormat("ko-KR", {
@@ -766,8 +896,9 @@ function render() {
   setDaylightGlance(scene);
   updateSeoulClock();
   setCurrentCoordinateGlance(current);
-  setGlance("#glanceEnv", "caution", "30.0°C (86.0°F)", "55% RH");
-  setGlance("#glanceCo", "caution", "0 ppm", "CO 전용 · DEMO");
+  setEnvironmentGlance(state.environment);
+  setGlance("#glanceCo", "caution", "0 ppm");
+  setRouteAlert(current);
 
   const alertBox = document.querySelector("#alert");
   if (scene.alert) {
@@ -907,6 +1038,7 @@ function setScene(key, options) {
   window.clearTimeout(walkStartTimer);
   stopWalk(false);
   setDestinationSelection(false);
+  state.routeDeviationDemo = false;
   state.sceneKey = sceneKey;
   state.scene = SCENES[sceneKey];
   state.daylightAlertSnapshot = sceneKey === 5 ? todayDaylight() : null;
@@ -947,6 +1079,7 @@ function setDestinationSelection(on) {
 function selectMapDestination(event) {
   cancelAutoDemo();
   if (!state.destinationSelecting) return;
+  state.routeDeviationDemo = false;
   const rect = canvas.getBoundingClientRect();
   const requested = projection().fromScreen(event.clientX - rect.left, event.clientY - rect.top);
   const from = currentPoint();
@@ -998,6 +1131,7 @@ function routeFromCurrentToBasecamp(from) {
 }
 
 function showBasecampRoute() {
+  state.routeDeviationDemo = false;
   const from = currentPoint();
   window.clearTimeout(walkStartTimer);
   stopWalk(false);
@@ -1059,6 +1193,16 @@ async function startAutoDemo() {
   setNight(true, true);
   await waitForAutoDemo(runId, AUTO_DEMO_DELAYS_MS.nightMode);
   if (autoDemo.runId === runId) autoDemo.active = false;
+}
+
+// D 키: 현재 위치를 경로에서 45 m 밀어내 경로 이탈 경고를 시연한다. 자동 시연은 멈추지 않는다.
+function toggleRouteDeviationDemo() {
+  if (!activeRoute()) {
+    showToast("활성 경로가 없어 이탈 판정을 하지 않습니다.", 2400);
+    return;
+  }
+  state.routeDeviationDemo = !state.routeDeviationDemo;
+  render();
 }
 
 function handleBasecampButton() {
@@ -1123,10 +1267,24 @@ window.addEventListener("keydown", (event) => {
   } else if (event.key === "c" || event.key === "C") {
     cancelAutoDemo();
     saveCheckpoint();
+  } else if (event.key === "d" || event.key === "D") {
+    toggleRouteDeviationDemo();
   } else if (event.key === "h" || event.key === "H") {
     const panel = document.querySelector("#director");
     panel.hidden = !panel.hidden;
   }
+});
+
+// 브라우저 QA(tests/ui_video_qa.js) 전용 훅. 제품 조작 경로가 아니다.
+window.safeaidVideoQa = Object.freeze({
+  temperatureLevel,
+  routeOffsetMeters,
+  routeDeviation: () => routeDeviation(currentPoint()),
+  setEnvironment(next) {
+    state.environment = { ...state.environment, ...next };
+    render();
+  },
+  toggleRouteDeviationDemo,
 });
 
 window.addEventListener("resize", draw);

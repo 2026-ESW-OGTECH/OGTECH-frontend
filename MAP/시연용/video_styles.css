@@ -5,6 +5,8 @@
   --video-water-line: #2a8795;
   --video-building: #202a29;
   --video-building-line: #73827f;
+  --sky: #7dd3fc;     /* 상대습도 */
+  --yellow: #f4d03f;  /* 기온 20~30°C */
 }
 
 :root[data-night="on"] {
@@ -12,6 +14,8 @@
   --video-water-line: #742424;
   --video-building: #180707;
   --video-building-line: #773030;
+  --sky: #ff8a8a;
+  --yellow: #ff7a6a;
 }
 
 .video-screen .glance strong {
@@ -26,7 +30,20 @@
   font-weight: 800;
   color: var(--amber);
 }
-.video-screen .glance-env strong { font-size: 20px; }
+/* 온도·습도는 같은 크기. 온도 색은 JS가 data-level로, 습도는 하늘색 고정 */
+.video-screen .glance-env strong,
+.video-screen .glance-env .sub {
+  font-family: inherit;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.video-screen .glance-env .env-temperature[data-level="hot"]  { color: var(--red); }
+.video-screen .glance-env .env-temperature[data-level="warm"] { color: var(--yellow); }
+.video-screen .glance-env .env-temperature[data-level="cool"] { color: var(--green); }
+.video-screen .glance-env .env-temperature[data-level="none"] { color: var(--grey); }
+.video-screen .glance-env .env-humidity { color: var(--sky); }
 
 .video-screen .map-canvas.destination-selecting { cursor: crosshair; }
 
@@ -85,6 +102,11 @@
 }
 
 .map.has-alert .map-attribution { top: 78px; }
+
+/* 경로 이탈 배너. 일조 경고와 같이 뜨면 그 아래에 쌓인다 */
+.map.has-alert .alert-route { top: 64px; }
+.map.has-route-alert .map-attribution { top: 78px; }
+.map.has-alert.has-route-alert .map-attribution { top: 142px; }
 
 .video-screen .status-toast {
   z-index: 3;
