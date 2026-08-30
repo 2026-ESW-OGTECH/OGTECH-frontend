@@ -1,4 +1,4 @@
-/* OGTECH 시연용 지도 화면 — 1024x600
+/* SafeAid 시연용 지도 화면 — 1024x600
  *
  * 안전 계약이 이 파일에 거는 제약
  *   1) 방위·거리·경로는 여기(코드)에서 계산합니다. LLM이 만들지 않습니다.
@@ -69,7 +69,7 @@ const SCENES = {
     current: "onTrail", fix: true, accuracy: 5.1, satellites: 8, ageSeconds: 2,
     target: "destination", route: "routeToGoal",
     daylight: 38, sunset: "19:41", batteryDays: 11, batteryPct: 76,
-    trailOffset: 0, alert: "귀환 권고 시각 도달 · 베이스캠프 경로를 확인하세요.",
+    trailOffset: 0, alert: "해가 지기까지 38분. 지금 돌아서세요.",
   },
   4: {
     title: "베이스캠프 역추적 · 컷 5",
@@ -101,6 +101,7 @@ const state = {
   scene: SCENES[1],
   sceneKey: "1",
   night: false,
+  telemetry: null,
 };
 
 /* 보행 재생.
@@ -384,10 +385,11 @@ function draw() {
   drawMarker(state.map.basecamp, "베이스캠프", cssVar("--amber"), projector, "triangle");
 
   // 현재 위치. fix가 없으면 녹색을 쓰지 않습니다 (색 규율)
-  if (scene.fix) {
-    drawAccuracyRing(current, scene.accuracy, projector);
+  const fix = hasGpsFix();
+  if (fix && current) {
+    if (!state.telemetry) drawAccuracyRing(current, scene.accuracy, projector);
     drawMarker(current, "현재", cssVar("--green"), projector, "circle");
-  } else {
+  } else if (!state.telemetry && current) {
     drawMarker(current, "마지막 확정", cssVar("--grey"), projector, "circle");
   }
 
@@ -411,7 +413,21 @@ function updateScaleBar(projector) {
 
 /** 보행 재생 중이면 합성 위치, 아니면 장면에 고정된 지점. */
 function currentPoint() {
+  if (state.telemetry) {
+    if (!hasGpsFix()) return null;
+    return { lon: state.telemetry.longitude, lat: state.telemetry.latitude };
+  }
   return walk.position || state.map[state.scene.current];
+}
+
+function telemetryIsFresh() {
+  return Boolean(state.telemetry && state.telemetry.connected && state.telemetry.age_s <= 3);
+}
+
+function hasGpsFix() {
+  if (!state.telemetry) return state.scene.fix;
+  return telemetryIsFresh() && state.telemetry.gps_state === 2 &&
+    Number.isFinite(state.telemetry.latitude) && Number.isFinite(state.telemetry.longitude);
 }
 
 function walkFrame(timestamp) {
@@ -463,8 +479,35 @@ function render() {
   const scene = state.scene;
   const current = currentPoint();
 
-  // 측위 — 정확도와 위성 수를 항상 같이 표시합니다 (안전 계약 4)
-  if (scene.fix) {
+  // STM32 실측값. 백엔드가 없을 때만 기존 데모 장면을 유지합니다.
+  if (state.telemetry) {
+    const live = telemetryIsFresh();
+    const dhtOk = live && state.telemetry.dht_valid;
+    const badge = document.querySelector("#liveBadge");
+    badge.textContent = live ? "LIVE" : "OFFLINE";
+
+    if (hasGpsFix()) {
+      setGlance("#glanceGps", "live", "FIX",
+        `${state.telemetry.latitude.toFixed(6)}, ${state.telemetry.longitude.toFixed(6)} · SAT ${state.telemetry.satellites}`);
+    } else if (live) {
+      setGlance("#glanceGps", "none", state.telemetry.gps_state === 1 ? "FIX 대기" : "미수신",
+        `SAT ${state.telemetry.satellites} · FRAME ${state.telemetry.seq}`);
+    } else {
+      setGlance("#glanceGps", "none", "미수신", "STM32 UART 연결 확인");
+    }
+
+    setGlance("#glanceSun", dhtOk ? "live" : "none",
+      dhtOk ? `${state.telemetry.temperature_c.toFixed(1)}°C` : "—",
+      dhtOk ? "DHT11 정상" : "DHT11 미수신");
+    setGlance("#glanceBattery", dhtOk ? "live" : "none",
+      dhtOk ? `${state.telemetry.humidity_pct.toFixed(1)}%` : "—",
+      dhtOk ? "DHT11 정상" : "DHT11 미수신");
+
+    const coLabels = ["워밍업", "정상", "갱신 지연"];
+    setGlance("#glanceTrail", live ? (state.telemetry.co_state === 1 ? "live" : "normal") : "none",
+      live ? `${state.telemetry.co_ppm} ppm` : "—",
+      live ? `ZE16B · ${coLabels[state.telemetry.co_state] || "상태 확인"}` : "ZE16B 미수신");
+  } else if (scene.fix) {
     setGlance("#glanceGps", "live", `±${scene.accuracy.toFixed(1)} m`,
       `SAT ${scene.satellites} · AGE ${scene.ageSeconds}s`);
   } else {
@@ -474,21 +517,19 @@ function render() {
       `SAT 0 · 마지막 ${scene.ageSeconds}초 전`);
   }
 
-  // 남은 일조 시간 — 45분 미만이면 경고
-  const sunCritical = scene.daylight < 45;
-  setGlance("#glanceSun", sunCritical ? "warn" : "normal",
-    formatDaylight(scene.daylight), `일몰 ${scene.sunset}`);
-
-  setGlance("#glanceBattery", "normal", `${scene.batteryDays}일`,
-    `${scene.batteryPct}% · 감시 모드`);
-
-  // 트레일 이탈
-  if (scene.trailOffset === null) {
-    setGlance("#glanceTrail", "none", "확인 불가", "측위 없음");
-  } else if (scene.trailOffset > 0) {
-    setGlance("#glanceTrail", "warn", "이탈", `${scene.trailOffset} m 벗어남`);
-  } else {
-    setGlance("#glanceTrail", "live", "경로 위", "이탈 0 m");
+  if (!state.telemetry) {
+    const sunCritical = scene.daylight < 45;
+    setGlance("#glanceSun", sunCritical ? "warn" : "normal",
+      formatDaylight(scene.daylight), `일몰 ${scene.sunset}`);
+    setGlance("#glanceBattery", "normal", `${scene.batteryDays}일`,
+      `${scene.batteryPct}% · 감시 모드`);
+    if (scene.trailOffset === null) {
+      setGlance("#glanceTrail", "none", "확인 불가", "측위 없음");
+    } else if (scene.trailOffset > 0) {
+      setGlance("#glanceTrail", "warn", "이탈", `${scene.trailOffset} m 벗어남`);
+    } else {
+      setGlance("#glanceTrail", "live", "경로 위", "이탈 0 m");
+    }
   }
 
   // 경고 배너. 지도 제목이 배너에 가리지 않도록 has-alert 를 같이 겁니다
@@ -511,7 +552,7 @@ function render() {
     document.querySelector("#readoutLabel").textContent =
       scene.target === "basecamp" ? "BASECAMP" : "DESTINATION";
 
-    if (!scene.fix) {
+    if (!hasGpsFix() || !current) {
       // 미수신 상태에서 확정값처럼 그리지 않습니다
       document.querySelector("#readoutBearing").textContent = "—";
       document.querySelector("#readoutDistance").textContent = "—";
@@ -610,6 +651,19 @@ async function tryLiveMap() {
   }
 }
 
+async function updateTelemetry() {
+  try {
+    const response = await fetch("/api/telemetry", { cache: "no-store" });
+    if (!response.ok) return;
+    state.telemetry = await response.json();
+    render();
+  } catch (error) {
+    // 정적 파일로 연 데모 모드에서는 기존 화면을 그대로 사용합니다.
+  }
+}
+
 setNight(false);
 setScene("1");
 tryLiveMap();
+updateTelemetry();
+window.setInterval(updateTelemetry, 1000);
