@@ -345,9 +345,9 @@ curl -s http://127.0.0.1:8790/api/device | python3 -m json.tool
 화면:
 
 ```text
-http://127.0.0.1:8790/product/     제품 화면 (1024×600)
-http://127.0.0.1:8790/             개발자 지도 변환 도구
-http://127.0.0.1:8790/video/       촬영용 자동 재생 화면
+http://127.0.0.1:8790/video/?live=1  ★ 정본 제품 화면 (1024×600, 키오스크 기본)
+http://127.0.0.1:8790/product/       구 제품 화면 (지도 엔진·음성·웨이포인트 연동)
+http://127.0.0.1:8790/               개발자 지도 변환 도구
 ```
 
 키오스크 실행:
@@ -356,7 +356,8 @@ http://127.0.0.1:8790/video/       촬영용 자동 재생 화면
 ./jetson/start-kiosk.sh
 ```
 
-`start-kiosk.sh`는 MAP API(`/product/`) 응답을 최대 60초 기다린 뒤 브라우저를 띄운다. Firefox가 있으면
+`start-kiosk.sh`는 `/video/?live=1` 응답을 최대 60초 기다린 뒤 브라우저를 띄운다
+(`OGTECH_KIOSK_URL`로 바꿀 수 있고, 촬영용 자동 재생은 `&autoplay=1`·`&autoplay=loop`). Firefox가 있으면
 전용 프로필 `~/.config/ogtech/firefox-kiosk`(`OGTECH_FIREFOX_PROFILE`로 변경)에 `user.js`를 써서
 정전 뒤 세션 복구·안전 모드·첫 실행 안내가 제품 화면을 가리지 않게 하고, `--kiosk --no-remote`로 실행한다.
 Chromium 폴백의 `--autoplay-policy=no-user-gesture-required`는 브라우저 CO 보조 경보음을 위해 사용한다

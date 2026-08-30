@@ -28,7 +28,7 @@ cd OGTECH-frontend/MAP
 python app.py --gps-mode stm32 --gps-port /dev/ttyACM0 --gps-baud 115200
 ```
 
-Chromium에서 `http://127.0.0.1:8790/product/`을 연다.
+Chromium에서 `http://127.0.0.1:8790/video/?live=1`을 연다(정본 제품 화면).
 
 전체 배선·Jetson 설치·자동 시작 절차는 [STM32_JETSON_SETUP.md](../STM32_JETSON_SETUP.md)를 따른다.
 

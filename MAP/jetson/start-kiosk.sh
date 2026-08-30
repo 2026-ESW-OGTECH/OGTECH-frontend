@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KIOSK_URL="${OGTECH_KIOSK_URL:-http://127.0.0.1:8790/product/}"
+# 정본 화면은 /video/ 다(2026-08-30 사용자 지시). ?live=1 이면 온·습도·CO를 STM32 실값으로
+# 채우고, 값이 3초 넘게 끊기면 꾸며내지 않고 "—"로 떨어뜨린다.
+# 촬영용 자동 재생이 필요하면 OGTECH_KIOSK_URL 에 &autoplay=1 (또는 loop)을 덧붙인다.
+KIOSK_URL="${OGTECH_KIOSK_URL:-http://127.0.0.1:8790/video/?live=1}"
 # Firefox 전용 프로필: 정전 후 세션 복구·안전 모드·첫 실행 안내가 제품 화면을 가리지 않게 한다.
 FIREFOX_PROFILE="${OGTECH_FIREFOX_PROFILE:-${XDG_CONFIG_HOME:-$HOME/.config}/ogtech/firefox-kiosk}"
 

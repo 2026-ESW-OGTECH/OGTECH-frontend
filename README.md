@@ -134,7 +134,8 @@ cd MAP
 python app.py --gps-mode stm32 --gps-port /dev/ttyTHS0 --gps-baud 115200
 ```
 
-제품 화면은 `http://127.0.0.1:8790/product/`, 촬영 DEMO는 `/video/`, 지도 개발 도구는 `/`다.
+정본 제품 화면은 `http://127.0.0.1:8790/video/?live=1`(젯슨 키오스크 기본), 구 제품 화면은
+`/product/`, 지도 개발 도구는 `/`다.
 `server.py`는 MAP API(`/api/map`, `/api/gps/*`)를 구현하지 않으므로 개발자 지도 화면 실행에 쓰지 않는다.
 
 ## UI 규칙 — 7인치에서 px는 거짓말입니다
