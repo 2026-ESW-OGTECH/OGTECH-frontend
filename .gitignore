@@ -17,3 +17,6 @@ desktop.ini
 MAP/videos/
 MAP/test-results/
 MAP/kiosk/video_app (*).js
+
+# 로컬 전용 — 커밋하지 않음(규칙은 MAP/jetson/local/RULES.md)
+MAP/jetson/local/

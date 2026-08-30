@@ -2,8 +2,7 @@
 set -euo pipefail
 
 # 부팅하면 화면 선택(/select/)이 먼저 뜬다. 터치로 제품 화면(/product/)과
-# 촬영 화면(/video/?live=1) 중 하나를 고르고, 각 화면 왼쪽 위 모서리를 두 번 누르면
-# 다시 선택 화면으로 돌아온다(kiosk/screen_switch.js).
+# 촬영 화면(/video/?live=1) 중 하나를 고른다.
 # 특정 화면으로 바로 띄우려면 OGTECH_KIOSK_URL 로 덮어쓴다.
 # 촬영용 자동 재생은 .../video/?live=1&autoplay=1 (또는 autoplay=loop).
 KIOSK_URL="${OGTECH_KIOSK_URL:-http://127.0.0.1:8790/select/}"

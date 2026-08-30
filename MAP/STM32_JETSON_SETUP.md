@@ -358,9 +358,8 @@ http://127.0.0.1:8790/               개발자 지도 변환 도구
 ```
 
 `start-kiosk.sh`는 `/select/` 응답을 최대 60초 기다린 뒤 브라우저를 띄운다. 선택 화면에서 제품 화면과
-촬영 화면을 터치로 고르고, 각 화면 **왼쪽 위 모서리를 두 번 누르면** 선택 화면으로 돌아온다
-(`kiosk/screen_switch.js` — 촬영에 잡히지 않도록 투명 영역이다). 특정 화면으로 바로 띄우려면
-`OGTECH_KIOSK_URL`을 쓰고, 촬영용 자동 재생은 `/video/?live=1&autoplay=1`·`&autoplay=loop`. Firefox가 있으면
+촬영 화면을 터치로 고른다. 특정 화면으로 바로 띄우려면 `OGTECH_KIOSK_URL`을 쓰고, 촬영용 자동
+재생은 `/video/?live=1&autoplay=1`·`&autoplay=loop`. Firefox가 있으면
 전용 프로필 `~/.config/ogtech/firefox-kiosk`(`OGTECH_FIREFOX_PROFILE`로 변경)에 `user.js`를 써서
 정전 뒤 세션 복구·안전 모드·첫 실행 안내가 제품 화면을 가리지 않게 하고, `--kiosk --no-remote`로 실행한다.
 Chromium 폴백의 `--autoplay-policy=no-user-gesture-required`는 브라우저 CO 보조 경보음을 위해 사용한다
