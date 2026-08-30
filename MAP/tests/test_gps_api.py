@@ -5,6 +5,7 @@ from __future__ import annotations
 from http.client import HTTPConnection
 import json
 from pathlib import Path
+import re
 import tempfile
 import threading
 import time
@@ -49,6 +50,17 @@ class GpsApiIntegrationTest(unittest.TestCase):
             return response.status, json.loads(response.read().decode("utf-8"))
         finally:
             connection.close()
+
+    def fetch_text(self, path: str) -> str:
+        connection = HTTPConnection("127.0.0.1", self.port, timeout=5.0)
+        try:
+            connection.request("GET", path)
+            response = connection.getresponse()
+            body = response.read().decode("utf-8")
+        finally:
+            connection.close()
+        self.assertEqual(response.status, 200, f"{path} 응답 {response.status}")
+        return body
 
     def test_replay_fix_routes_without_masquerading_as_live_sensor(self) -> None:
         status, error = self.request(
@@ -466,6 +478,35 @@ class GpsApiIntegrationTest(unittest.TestCase):
             connection.close()
         self.assertEqual(response.status, 422)
         self.assertIn("fix", str(payload["error"]))
+
+
+    def test_no_screen_ever_renders_the_word_demo(self) -> None:
+        """화면 규칙: 사용자에게 보이는 문자열에 DEMO 를 넣지 않는다.
+
+        2026-08-30 사용자 지시(재발 방지). 모의 데이터 경고 자체는 유지하되
+        표기는 한글 `모의 데이터` 또는 SAMPLE 을 쓴다. DEMO_MAP·
+        AUTO_DEMO_DELAYS_MS 처럼 식별자에 붙은 형태와 API 상태값
+        "demo"(소문자)는 화면에 그대로 나오지 않으므로 대상이 아니다.
+        """
+        # 식별자의 일부가 아닌 홑낱말 DEMO 만 잡는다.
+        word = re.compile(r"(?<![A-Za-z0-9_])DEMO(?![A-Za-z0-9_])")
+        served = (
+            "/",
+            "/product/",
+            "/video/",
+            "/app.js",
+            "/product/app.js",
+            "/product/live_app.js",
+            "/video/video_app.js",
+            "/video/video_map.js",
+            "/styles.css",
+            "/product/styles.css",
+            "/video/video_styles.css",
+        )
+        for path in served:
+            with self.subTest(path=path):
+                found = word.findall(self.fetch_text(path))
+                self.assertEqual(found, [], f"{path} 에 DEMO 문구가 있습니다")
 
 
 if __name__ == "__main__":

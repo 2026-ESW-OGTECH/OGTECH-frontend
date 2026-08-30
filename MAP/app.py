@@ -961,7 +961,7 @@ def main() -> None:
     )
     print(f"지도 검증 도구: http://{args.host}:{args.port}/")
     print(f"OGTECH 제품 화면: http://{args.host}:{args.port}/product/")
-    print(f"촬영 전용 DEMO: http://{args.host}:{args.port}/video/")
+    print(f"촬영 전용 화면: http://{args.host}:{args.port}/video/")
     print("종료: Ctrl+C")
     try:
         server.serve_forever()

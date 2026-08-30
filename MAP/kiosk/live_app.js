@@ -789,7 +789,7 @@ function setupBootNotice() {
     label.textContent = state.bootDiagnosticOverall === "ready"
       ? "별도 비상 통신 수단 준비를 확인했습니다"
       : state.bootDiagnosticOverall === "demo"
-        ? "DEMO·대기 상태를 확인하고 계속합니다"
+        ? "모의·대기 상태를 확인하고 계속합니다"
         : "성능저하·대기 상태를 확인하고 계속합니다";
     button.focus();
   };
@@ -836,7 +836,7 @@ async function loadBootDiagnostics() {
       value.textContent = check.state === "pass"
         ? "정상"
         : check.state === "demo"
-          ? "DEMO"
+          ? "모의"
           : check.state === "waiting"
             ? "대기"
             : "실패";
@@ -847,7 +847,7 @@ async function loadBootDiagnostics() {
     summary.textContent = payload.overall === "ready"
       ? "부팅 자가진단 · 모든 연결 확인"
       : payload.overall === "demo"
-        ? "부팅 자가진단 · DEMO/대기 상태"
+        ? "부팅 자가진단 · 모의/대기 상태"
         : payload.overall === "waiting"
           ? "부팅 자가진단 · 장치 연결 대기"
           : "부팅 자가진단 · 성능저하 확인 필요";

@@ -22,7 +22,7 @@ cd OGTECH-frontend/MAP
 python app.py --gps-mode replay
 ```
 
-`http://127.0.0.1:8790/product/`을 연다. replay는 고정 샘플이므로 지도 제목 옆 `DEMO`가 보여야 한다.
+`http://127.0.0.1:8790/product/`을 연다. replay는 고정 샘플이므로 지도 제목 옆 `모의 데이터`가 보여야 한다.
 Air530 GGA에 `acc_m`이 없으므로 정확도는 `±—`, 위성 수는 `SAT 10`으로 표시된다
 `[출처: sample_data/air530_replay.nmea]`.
 

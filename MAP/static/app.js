@@ -169,9 +169,9 @@ function updateGps(snapshot) {
     fixBadge.textContent = "INPUT ERROR";
     fixBadge.classList.add("error");
   } else if (snapshot.fix) {
-    status.textContent = snapshot.demo ? "DEMO FIX" : "GPS FIX";
+    status.textContent = snapshot.demo ? "SAMPLE FIX" : "GPS FIX";
     status.classList.add(snapshot.demo ? "gps-waiting" : "gps-live");
-    fixBadge.textContent = snapshot.demo ? "DEMO FIX" : "LIVE FIX";
+    fixBadge.textContent = snapshot.demo ? "SAMPLE FIX" : "LIVE FIX";
     fixBadge.classList.add(snapshot.demo ? "demo" : "live");
   } else if (snapshot.mode !== "off" && snapshot.connected) {
     status.textContent = "FIX 대기";
@@ -200,7 +200,7 @@ function updateGps(snapshot) {
     state.current = { lat: snapshot.lat, lon: snapshot.lon };
     state.source = snapshot.demo ? "demo" : "sensor";
     document.querySelector("#currentSource").textContent = snapshot.demo
-      ? "CURRENT / NMEA DEMO"
+      ? "CURRENT / NMEA SAMPLE"
       : "CURRENT / GPS LIVE";
   } else if (snapshot.last_fix && state.source === "sensor") {
     state.current = {
@@ -252,7 +252,7 @@ async function configureGps() {
     closeGpsSetup();
     setNotice(
       selectedGpsMode === "replay"
-        ? "DEMO NMEA 재생을 시작했습니다."
+        ? "샘플 NMEA 재생을 시작했습니다."
         : "직렬 포트를 열고 GPS 입력을 기다립니다."
     );
   } catch (error) {
@@ -269,7 +269,7 @@ async function stopGps() {
     state.source = "demo";
     state.current = state.map ? { ...state.map.suggested_points.current } : null;
     state.route = null;
-    document.querySelector("#currentSource").textContent = "CURRENT / DEMO";
+    document.querySelector("#currentSource").textContent = "CURRENT / SAMPLE";
     updateGps(snapshot);
     closeGpsSetup();
     setNotice("GPS 입력을 중지했습니다.");

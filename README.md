@@ -119,7 +119,7 @@ MAP/               ★ 오프라인 지도 엔진 (이 저장소의 핵심)
 ├─ TEST_images/              위 화면 캡처 (1024×600 실제 해상도)
 └─ kiosk/                   ★ 키오스크 UI
    ├─ index.html · live_app.js · styles.css                         실제 제품 화면(`/product/`)
-   ├─ video.html · video_app.js · video_map.js · video_styles.css   촬영 전용 합성 DEMO(`/video/`)
+   ├─ video.html · video_app.js · video_map.js · video_styles.css   촬영 전용 합성 화면(`/video/`)
    ├─ *.wav                                                         사전 합성 안내 음성
    └─ poi_catalog.json · build_map_data.py                          지도 데이터 생성
 ```
@@ -190,12 +190,28 @@ node MAP/tests/ui_video_qa.js                     # video.html 계기·경로 �
 리뷰에서 확인한 미조치 문제(keep-alive 오류 응답 유실 등)는 조직 저장소
 [`.github/docs/WORKLOG.md`](https://github.com/2026-ESW-OGTECH/.github/blob/main/docs/WORKLOG.md)에 기록합니다.
 
+## 화면 문구 규칙
+
+**화면에 `DEMO`라는 글자를 넣지 않습니다.** 예외는 없습니다. `/product/`, `/video/`, 개발자 도구(`/`)
+어디에도, 배지·라벨·토스트·상태 문구·안내문 어느 자리에도 쓰지 않습니다. 사용자가 여러 차례 지시한
+사항이며 2026-08-30에 재발해 다시 제거했습니다.
+
+- 모의·재생 데이터를 알리는 표시 **자체는 지우지 않고 유지**합니다. 실제가 아닌 값을 실제처럼
+  보이게 하는 것이 더 위험하기 때문입니다(`안전 경계` 참고). 문구만 바꿉니다.
+- 쓸 표기: 한글 화면은 `모의 데이터`, 영문 스텐실 라벨은 `SAMPLE`.
+- 금지 대상은 **화면에 렌더링되는 문자열**입니다. `DEMO_MAP`·`AUTO_DEMO_DELAYS_MS` 같은 내부 식별자와
+  API 상태값 `"demo"`(소문자)는 화면에 그대로 나오지 않으므로 그대로 둡니다. 다만 그 값을 화면에
+  출력할 때는 반드시 위 표기로 변환합니다.
+- 회귀 방지: `MAP/tests/test_gps_api.py`의
+  `test_no_screen_ever_renders_the_word_demo`가 `/`, `/product/`, `/video/`와 이들이 내려주는
+  JS·CSS 를 받아 홑낱말 `DEMO`가 하나라도 있으면 실패시킵니다. 문구를 되돌리면 테스트가 깨집니다.
+
 ## 안전 경계
 
 - **방위·거리·경로는 지도 엔진(코드)이 계산합니다.** LLM은 이 값을 만들지 않고 읽어 주기만 합니다.
 - **GPS 미수신을 위치 추정으로 덮지 않습니다.** 마지막 확정 좌표와 경과 시간만 표시하고,
   측위 정확도(±m·위성 수)를 항상 같이 표시합니다.
-- **`/product/` 화면은 모의 값이 하나라도 섞이면 `DEMO` 태그를 숨기지 않습니다.** `/video/` 촬영 화면의
-  CO 칸 `DEMO` 문구는 테스트 완료 확인 후 2026-08-29에 제거했습니다(위 캡처는 제거 전 화면).
+- **`/product/` 화면은 모의 값이 하나라도 섞이면 `모의 데이터` 태그를 숨기지 않습니다.** 경고 자체는
+  유지하되 문구는 아래 `화면 문구 규칙`을 따릅니다(위 캡처는 문구 교체 전 화면).
 - 실제 GPS 트랙은 커밋하지 않습니다. `kiosk/`은 촬영용 시나리오 좌표만 씁니다.
 - 지도 데이터: © OpenStreetMap contributors, ODbL 1.0 — 화면에 귀속 표기를 유지합니다.
