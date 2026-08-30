@@ -243,6 +243,16 @@ USART3로 수신하며 `\r` 또는 `\n`으로 종결한다. `strcmp` **완전 �
 
 ## 5. Jetson 연결과 실행
 
+> **실제 배치 (2026-08-30 확인 · Jetson Xavier NX devkit, L4T R35.6.5)** — 아래 5.1~5.6의 USB(`/dev/ttyACM0`)·JSONL v1
+> 절차와 달리 현재 보드는 **40핀 UART `/dev/ttyTHS0`(serial@3100000)** 에 물려 있고, 펌웨어는 `$SA1,…*XOR` CSV(1 Hz, 115200)를
+> 보낸다. 수신은 `app.py`가 아니라 **`kiosk/uart_server.py --port /dev/ttyTHS0 --http-port 8791`**(정적 UI + `/api/telemetry`)이다.
+> `gps_service`의 JSONL 파서는 이 프레임을 거부하므로 `--gps-mode stm32`로는 붙지 않는다(WORKLOG #38·#40).
+>
+> **필수 사전 조치(한 번):** `sudo systemctl disable --now nvgetty` · `sudo usermod -aG dialout kit`.
+> JetPack 기본 `nvgetty.service`는 부팅 시 ttyTHS0에 `getty -L 115200`을 띄워 STM32 프레임을 로그인 입력으로 소비하고
+> 프롬프트·에코를 STM32로 되보낸다. 2026-08-30 이 때문에 STM32가 송출을 멈춰 브리지가 24분간 0프레임(UART 오버런 70,349회)이었고
+> 리셋 후 복구됐다. 비활성화 뒤 재부팅에서는 리셋 없이 즉시 수신(저널 getty 0건, 오류 카운터 0).
+
 ### 5.1 물리 연결 — USB 방식 권장
 
 Jetson 40핀 UART는 핀 멀티플렉스·콘솔 설정 영향을 받는다. 시연에서는 USB 직렬 장치가 가장 단순하다.
@@ -538,6 +548,8 @@ SET RTC UTC YYYY-MM-DDTHH:MM:SSZ   ← DS3231 연결 후
 | `curl /api/device`에 `connected=false` | `start-map.sh`가 경고를 찍고 저하 부팅했는지 로그 확인 → 케이블 재연결 후 2초 재시도 루프가 복구하는지 |
 | `CO=NOT_FOUND`가 사라지지 않는다 | ZE16B-CO 전원 정격 → TX/RX가 뒤바뀌지 않았는지 → 보율 9600 → 프레임 헤더 `FF 04 03`이 맞는지 |
 | `CO=WARMING_UP`이 안 끝난다 | 30초 예열이다. 남은 초가 줄어들지 않으면 STM32가 계속 리셋되고 있는지 확인 |
+| 40핀 UART 브리지가 계속 `수신 대기`(화면 OFFLINE) | `journalctl -b \| grep -iE "ttyTHS0\|login\["`에 getty/login 흔적이 있으면 `nvgetty`가 포트를 건드린 것 — `sudo systemctl disable --now nvgetty` 후 STM32 리셋. 바이트 도착 여부는 `/proc/interrupts`로 보지 말고(정상 수신은 DMA라 안 늘어남) `TIOCGICOUNT`의 rx/overrun/brk로 본다 |
+| `Permission denied: /dev/ttyTHS0` | `ls -l /dev/ttyTHS0`이 `root tty 620`이면 getty 흔적. nvgetty 비활성화 + 재부팅 후 `root dialout 660`이 되므로 실행 사용자를 `dialout`에 넣는다 |
 | `GPS=NOT_FOUND`가 계속된다 | NMEA가 5초 이상 없다는 뜻이다. 안테나·야외 이동 → TX/RX 방향 → 보율 9600 |
 | `GPS=NO_FIX`에서 안 올라간다 | NMEA는 들어오는데 fix가 없는 상태다. `SAT` 수를 보며 하늘이 열린 곳에서 대기 |
 | `DHT11=ERROR`가 반복된다 | 데이터 선 **외부 풀업 저항**이 있는지(펌웨어는 내부 풀업을 쓰지 않는다) → 배선 길이 → 3.3 V 전원 |
