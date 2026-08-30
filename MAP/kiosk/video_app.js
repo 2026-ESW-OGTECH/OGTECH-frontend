@@ -1389,6 +1389,16 @@ window.ogtechVideoQa = Object.freeze({
   toggleRouteDeviationDemo,
 });
 
+// autoplay=1 은 1회, autoplay=loop 는 촬영이 끝날 때까지 반복한다.
+async function startAutoplay() {
+  await new Promise((resolve) => window.setTimeout(resolve, AUTOPLAY_START_DELAY_MS));
+  for (;;) {
+    await startAutoDemo();
+    if (AUTOPLAY_MODE !== "loop") return;
+    await new Promise((resolve) => window.setTimeout(resolve, AUTOPLAY_LOOP_PAUSE_MS));
+  }
+}
+
 window.addEventListener("resize", draw);
 setNight(false);
 setScene(1, { audio: false });
@@ -1396,3 +1406,7 @@ window.setInterval(() => {
   updateSeoulClock();
   setDaylightGlance(state.scene);
 }, 1000);
+
+// URL 파라미터 반영. 두 함수 모두 파라미터가 없으면 스스로 아무것도 하지 않는다.
+connectLiveSensors();
+if (AUTOPLAY_MODE) startAutoplay();
