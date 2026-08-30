@@ -492,11 +492,13 @@ class GpsApiIntegrationTest(unittest.TestCase):
         word = re.compile(r"(?<![A-Za-z0-9_])DEMO(?![A-Za-z0-9_])")
         served = (
             "/",
+            "/select/",
             "/product/",
             "/video/",
             "/app.js",
             "/product/app.js",
             "/product/live_app.js",
+            "/product/screen_switch.js",
             "/video/video_app.js",
             "/video/video_map.js",
             "/styles.css",
@@ -508,6 +510,28 @@ class GpsApiIntegrationTest(unittest.TestCase):
                 found = word.findall(self.fetch_text(path))
                 self.assertEqual(found, [], f"{path} 에 DEMO 문구가 있습니다")
 
+
+    def test_screen_select_offers_both_screens_and_switch_hook(self) -> None:
+        """부팅 화면(/select/)에서 제품·촬영 화면을 터치로 고를 수 있어야 한다.
+
+        2026-08-30 사용자 요구: 자동 부팅이라 한쪽이 뜨면 다른 쪽을 못 골랐다.
+        키오스크는 Firefox --kiosk 라 주소창이 없으므로 이동 경로는 화면 안에만 있다.
+        """
+        html = self.fetch_text("/select/")
+        self.assertIn('href="/product/"', html)
+        self.assertIn('href="/video/?live=1"', html)
+        self.assertIn("화면을 선택하세요", html)
+        # 되돌아오는 방법을 화면에 적어 둔다(주소창이 없으므로 유일한 안내다).
+        self.assertIn("왼쪽 위 모서리를 두 번", html)
+
+        # 두 화면 모두 복귀 스크립트를 싣고, 그 스크립트는 /select/ 로 보낸다.
+        for path in ("/product/", "/video/"):
+            with self.subTest(path=path):
+                self.assertIn("screen_switch.js", self.fetch_text(path))
+        for path in ("/product/screen_switch.js", "/video/screen_switch.js"):
+            with self.subTest(path=path):
+                switch = self.fetch_text(path)
+                self.assertIn('const TARGET = "/select/"', switch)
 
 if __name__ == "__main__":
     unittest.main()

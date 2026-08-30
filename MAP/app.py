@@ -720,6 +720,10 @@ class AppHandler(BaseHTTPRequestHandler):
             "/index.html": STATIC_ROOT / "index.html",
             "/app.js": STATIC_ROOT / "app.js",
             "/styles.css": STATIC_ROOT / "styles.css",
+            "/select": PRODUCT_ROOT / "select.html",
+            "/select/": PRODUCT_ROOT / "select.html",
+            "/select/index.html": PRODUCT_ROOT / "select.html",
+            "/select/styles.css": PRODUCT_ROOT / "styles.css",
             "/product": PRODUCT_ROOT / "index.html",
             "/product/": PRODUCT_ROOT / "index.html",
             "/product/index.html": PRODUCT_ROOT / "index.html",
@@ -727,6 +731,7 @@ class AppHandler(BaseHTTPRequestHandler):
             "/product/live_app.js": PRODUCT_ROOT / "live_app.js",
             "/product/app.js": PRODUCT_ROOT / "app.js",
             "/product/konkuk_map.js": PRODUCT_ROOT / "konkuk_map.js",
+            "/product/screen_switch.js": PRODUCT_ROOT / "screen_switch.js",
             "/video": PRODUCT_ROOT / "video.html",
             "/video/": PRODUCT_ROOT / "video.html",
             "/video/index.html": PRODUCT_ROOT / "video.html",
@@ -734,6 +739,7 @@ class AppHandler(BaseHTTPRequestHandler):
             "/video/video_styles.css": PRODUCT_ROOT / "video_styles.css",
             "/video/video_app.js": PRODUCT_ROOT / "video_app.js",
             "/video/video_map.js": PRODUCT_ROOT / "video_map.js",
+            "/video/screen_switch.js": PRODUCT_ROOT / "screen_switch.js",
             "/video/destination_set.wav": PRODUCT_ROOT / "destination_set.wav",
             "/video/destination_arrived.wav": PRODUCT_ROOT / "destination_arrived.wav",
             "/video/return_to_base.wav": PRODUCT_ROOT / "return_to_base.wav",
@@ -959,6 +965,7 @@ def main() -> None:
             "baud": args.gps_baud or None,
         },
     )
+    print(f"화면 선택: http://{args.host}:{args.port}/select/")
     print(f"지도 검증 도구: http://{args.host}:{args.port}/")
     print(f"OGTECH 제품 화면: http://{args.host}:{args.port}/product/")
     print(f"촬영 전용 화면: http://{args.host}:{args.port}/video/")
