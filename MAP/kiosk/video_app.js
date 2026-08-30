@@ -1389,6 +1389,70 @@ window.ogtechVideoQa = Object.freeze({
   toggleRouteDeviationDemo,
 });
 
+// 시연은 실외에서 하고 키보드가 없다. 화면 오른쪽 가장자리에 보이지 않는 세로 띠를 두고
+// 두 번 누르면 Space 와 똑같이(cancelAutoDemo + nextScene) 다음 장면으로 넘어간다.
+// 촬영에 잡히지 않도록 평소에는 아무것도 그리지 않는다. 첫 번째 터치에만 안쪽 모서리에
+// 1px 선이 잠깐 떠서 "한 번 눌렸다"는 것만 알려 준다.
+// 아래 96px 은 조작 버튼 4개 자리라 비워 두고, 위 504px(계기 84 + 지도 420)만 덮는다.
+const SCENE_STRIP_WIDTH_PX = 56;      // 8.4mm — 베젤을 잡은 엄지로 누르기 충분하다
+const SCENE_STRIP_ARM_MS = 1200;      // 이 안에 한 번 더 눌러야 넘어간다
+
+function installSceneAdvanceStrip() {
+  const screen = document.querySelector(".screen");
+  if (!screen) return;
+
+  const strip = document.createElement("button");
+  strip.type = "button";
+  strip.id = "sceneAdvanceStrip";
+  strip.setAttribute("aria-label", "다음 장면으로 넘기기 (두 번 누르기)");
+  Object.assign(strip.style, {
+    position: "absolute",
+    top: "0",
+    right: "0",
+    width: `${SCENE_STRIP_WIDTH_PX}px`,
+    height: "calc(100% - 96px)",
+    margin: "0",
+    padding: "0",
+    border: "0",
+    borderLeft: "1px solid transparent",
+    background: "transparent",
+    cursor: "pointer",
+    zIndex: "800",
+    appearance: "none",
+    outline: "none",
+    touchAction: "manipulation",
+    WebkitTapHighlightColor: "transparent",
+  });
+
+  let armedUntil = 0;
+  let armTimer = 0;
+
+  const disarm = () => {
+    armedUntil = 0;
+    strip.style.borderLeftColor = "transparent";
+  };
+
+  strip.addEventListener("click", (event) => {
+    // 지도 캔버스의 목적지 지정 클릭으로 새어 나가지 않게 막는다.
+    event.preventDefault();
+    event.stopPropagation();
+    const now = Date.now();
+    if (now <= armedUntil) {
+      window.clearTimeout(armTimer);
+      disarm();
+      cancelAutoDemo();
+      nextScene();
+      return;
+    }
+    armedUntil = now + SCENE_STRIP_ARM_MS;
+    strip.style.borderLeftColor = cssVar("--amber");
+    window.clearTimeout(armTimer);
+    armTimer = window.setTimeout(disarm, SCENE_STRIP_ARM_MS);
+  });
+
+  screen.append(strip);
+}
+
 // autoplay=1 은 1회, autoplay=loop 는 촬영이 끝날 때까지 반복한다.
 async function startAutoplay() {
   await new Promise((resolve) => window.setTimeout(resolve, AUTOPLAY_START_DELAY_MS));
@@ -1410,3 +1474,4 @@ window.setInterval(() => {
 // URL 파라미터 반영. 두 함수 모두 파라미터가 없으면 스스로 아무것도 하지 않는다.
 connectLiveSensors();
 if (AUTOPLAY_MODE) startAutoplay();
+installSceneAdvanceStrip();

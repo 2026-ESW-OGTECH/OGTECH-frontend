@@ -533,5 +533,22 @@ class GpsApiIntegrationTest(unittest.TestCase):
                 switch = self.fetch_text(path)
                 self.assertIn('const TARGET = "/select/"', switch)
 
+    def test_video_screen_has_keyboardless_scene_advance_strip(self) -> None:
+        """시연은 실외에서 키보드 없이 한다. 화면 안에 장면 넘김 수단이 있어야 한다.
+
+        2026-08-30 사용자 요구. 오른쪽 가장자리의 투명한 세로 띠를 두 번 누르면
+        Space 와 같게 다음 장면으로 넘어간다. 촬영 화면 전용 기능이라 /product/ 에는
+        넣지 않는다.
+        """
+        video_app = self.fetch_text("/video/video_app.js")
+        self.assertIn("function installSceneAdvanceStrip()", video_app)
+        self.assertIn("installSceneAdvanceStrip();", video_app)
+        # Space 키와 같은 동작이어야 한다.
+        self.assertIn("cancelAutoDemo();\n      nextScene();", video_app)
+        # 아래 96px 조작 버튼 자리를 덮지 않는다.
+        self.assertIn('height: "calc(100% - 96px)"', video_app)
+        # 평소에는 보이지 않는다(촬영에 잡히면 안 된다).
+        self.assertIn('background: "transparent"', video_app)
+
 if __name__ == "__main__":
     unittest.main()
