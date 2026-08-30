@@ -7,9 +7,9 @@ Wants=ogtech-map.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/ogtech/MAP
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/systemd-inhibit --what=shutdown --who=OGTECH --why="STM32 gate ACK 전송" --mode=delay /opt/ogtech/MAP/.venv/bin/python /opt/ogtech/MAP/jetson/power_control.py
+WorkingDirectory=/home/kit/ogtech/OGTECH-frontend/MAP
+ExecStart=/usr/bin/systemd-inhibit --what=shutdown --who=OGTECH --why="STM32 gate ACK 전송" --mode=delay /usr/bin/python3 /home/kit/ogtech/OGTECH-frontend/MAP/jetson/power_control.py
 Restart=on-failure
 RestartSec=2
 

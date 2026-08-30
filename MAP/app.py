@@ -181,13 +181,15 @@ class MapRegistry:
                 goal_lon=destination["lon"],
                 max_snap_m=max_snap_m,
             )
+            # /api/device와 같은 선분 거리. start_snap_m은 최근접 노드 거리라 직선 보행로 중간에서 과장된다(WORKLOG #17).
+            offset_m = self._map.trail_offset_m(current["lat"], current["lon"])
 
         route_payload = result.as_dict()
         next_point = result.coordinates[1] if len(result.coordinates) > 1 else result.coordinates[0]
         next_wp_m = haversine_m(
             current["lon"], current["lat"], next_point[0], next_point[1]
         )
-        on_trail = result.start_snap_m <= max(20.0, accuracy_m or 0.0)
+        on_trail = offset_m <= max(20.0, accuracy_m or 0.0)
         device_state = {
             "gps": {
                 "fix": sensor_fix,
@@ -200,7 +202,7 @@ class MapRegistry:
             },
             "route": {
                 "on_trail": on_trail,
-                "offset_m": round(result.start_snap_m, 1),
+                "offset_m": round(offset_m, 1),
                 "next_wp_m": round(next_wp_m, 1),
             },
         }
@@ -346,6 +348,7 @@ class AppHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:  # noqa: N802 - 표준 라이브러리 규약
+        self._response_started = False  # keep-alive는 같은 핸들러를 재사용 — 요청마다 초기화(WORKLOG #16)
         try:
             path = urlsplit(self.path).path
             if path == "/api/health":
@@ -567,6 +570,7 @@ class AppHandler(BaseHTTPRequestHandler):
         }
 
     def do_POST(self) -> None:  # noqa: N802 - 표준 라이브러리 규약
+        self._response_started = False  # keep-alive 재사용 핸들러 — 요청마다 초기화(WORKLOG #16)
         path = urlsplit(self.path).path
         try:
             if path == "/api/gps/configure":
@@ -848,7 +852,8 @@ class AppHandler(BaseHTTPRequestHandler):
             self.navigation.unsubscribe_voice(subscriber)
 
     def end_headers(self) -> None:
-        # 응답 헤더가 한 번이라도 나가면 이후 예외에서 _json 재응답을 막는다(SSE 스트림 보호).
+        # 응답 헤더가 한 번이라도 나가면 같은 요청 안에서 _json 재응답을 막는다(SSE 스트림 보호).
+        # do_GET/do_POST 진입 시 리셋되므로 keep-alive 다음 요청에는 영향을 주지 않는다.
         self._response_started = True
         super().end_headers()
 

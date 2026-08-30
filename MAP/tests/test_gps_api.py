@@ -133,10 +133,11 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertIn("ENVIRONMENT", html)
         self.assertNotIn("demo-badge", html)
         self.assertIn("live_app.js", html)
-        self.assertIn("이 장치는 구조 요청 수단이 아닙니다", html)
-        self.assertIn("bootAcknowledge", html)
+        # 2026-08-30 사용자 지시: 부팅 안내 모달 제거 — 화면이 잠금 없이 바로 열려야 한다.
+        self.assertNotIn('id="bootNotice"', html)
+        self.assertNotIn("bootAcknowledge", html)
         self.assertIn('id="positionDetails"', html)
-        self.assertIn('id="bootChecks"', html)
+        self.assertIn('id="btnDestination"', html)
 
         status, diagnostics = self.request("GET", "/api/diagnostics")
         self.assertEqual(status, 200)
@@ -438,6 +439,33 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertIn("relation/7885627", map_data)
         self.assertIn("way/369210727", map_data)
         self.assertIn("map_engine.find_route (A*)", map_data)
+
+    def test_keep_alive_second_request_still_gets_error_json(self) -> None:
+        """같은 소켓의 두 번째 요청에서도 422 JSON이 와야 한다(WORKLOG #16, 무응답 회귀)."""
+        status, stopped = self.request("POST", "/api/gps/stop", {})
+        self.assertEqual(status, 200)
+        self.assertFalse(stopped["fix"])
+
+        connection = HTTPConnection("127.0.0.1", self.port, timeout=3.0)
+        try:
+            connection.request("GET", "/api/health")
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(response.read().decode("utf-8"))["status"], "ok")
+
+            body = json.dumps({"action": "save_current", "kind": "checkpoint"}).encode("utf-8")
+            connection.request(
+                "POST",
+                "/api/waypoints",
+                body=body,
+                headers={"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()  # 수정 전: 응답 없이 timeout
+            payload = json.loads(response.read().decode("utf-8"))
+        finally:
+            connection.close()
+        self.assertEqual(response.status, 422)
+        self.assertIn("fix", str(payload["error"]))
 
 
 if __name__ == "__main__":

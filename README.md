@@ -104,7 +104,7 @@ NetworkX로 복귀 경로를 계산합니다. 외부 라우팅 API 호출이 한
 ## 구성
 
 ```text
-server.py          키오스크 서버 (:8780). MAP/kiosk 을 서빙하고 /backend/* 를 :8765로 중계
+server.py          레거시 통합 프록시 (:8780). /backend/* 중계용이며 MAP API는 제공하지 않음
 tests/             서버 스모크 테스트
 
 MAP/               ★ 오프라인 지도 엔진 (이 저장소의 핵심)
@@ -115,11 +115,11 @@ MAP/               ★ 오프라인 지도 엔진 (이 저장소의 핵심)
 ├─ position_history.py       이동 경로 자동 기록, 체크포인트 역추적
 ├─ solar_service.py          일출 · 일몰 · 시민박명 오프라인 천문 계산
 ├─ jetson/                   systemd 유닛과 Jetson 전원 게이팅 제어
-├─ tests/                    단위 · 회귀 테스트 80개
+├─ tests/                    단위 · 회귀 테스트
 ├─ TEST_images/              위 화면 캡처 (1024×600 실제 해상도)
-└─ kiosk/                   ★ 현재 키오스크 UI
-   ├─ video.html · video_app.js · video_map.js · video_styles.css   최신 화면
-   ├─ index.html · app.js · live_app.js                             이전 세대 화면
+└─ kiosk/                   ★ 키오스크 UI
+   ├─ index.html · live_app.js · styles.css                         실제 제품 화면(`/product/`)
+   ├─ video.html · video_app.js · video_map.js · video_styles.css   촬영 전용 합성 DEMO(`/video/`)
    ├─ *.wav                                                         사전 합성 안내 음성
    └─ poi_catalog.json · build_map_data.py                          지도 데이터 생성
 ```
@@ -130,17 +130,12 @@ MAP/               ★ 오프라인 지도 엔진 (이 저장소의 핵심)
 ## 실행
 
 ```bash
-python server.py --backend http://127.0.0.1:8765
+cd MAP
+python app.py --gps-mode stm32 --gps-port /dev/ttyTHS0 --gps-baud 115200
 ```
 
-`:8780`에서 뜨고 기본 문서는 `MAP/kiosk/video.html`입니다.
-backend를 먼저 띄운 뒤 Chromium을 `http://127.0.0.1:8780/` 단일 kiosk 창으로 엽니다.
-
-다른 화면을 띄우려면 `--root`와 `--index`로 바꿉니다.
-
-```bash
-python server.py --root MAP/static --index index.html
-```
+제품 화면은 `http://127.0.0.1:8790/product/`, 촬영 DEMO는 `/video/`, 지도 개발 도구는 `/`다.
+`server.py`는 MAP API(`/api/map`, `/api/gps/*`)를 구현하지 않으므로 개발자 지도 화면 실행에 쓰지 않는다.
 
 ## UI 규칙 — 7인치에서 px는 거짓말입니다
 
@@ -189,7 +184,7 @@ node MAP/tests/ui_video_qa.js                     # video.html 계기·경로 �
 | 대상 | 결과 |
 |---|---|
 | `tests/` | 5 tests, OK `[실측: 2026-08-29]` |
-| `MAP/tests/` | 80 tests, 전부 통과 `[실측: 2026-08-29]` |
+| `MAP/tests/` | 87 tests, 전부 통과 `[실측: 2026-08-30, PC·Jetson Python 3.8]` |
 | `MAP/tests/ui_video_qa.js` | OK — 온습도 20px 동일·색 규칙 6단계·경로 이탈 배너 표시/해제/스택 `[실측: 2026-08-29]` |
 
 리뷰에서 확인한 미조치 문제(keep-alive 오류 응답 유실 등)는 조직 저장소

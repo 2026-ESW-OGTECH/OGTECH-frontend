@@ -14,13 +14,24 @@ from gps_service import (
     encode_stm32_telemetry,
     parse_stm32_button,
     parse_stm32_fix,
+    parse_stm32_ogt1,
     parse_stm32_output,
     parse_stm32_power_event,
+    parse_stm32_telemetry,
 )
 
 
 ROOT = Path(__file__).resolve().parents[1]
 NMEA_REPLAY = ROOT / "sample_data" / "air530_replay.nmea"
+# 실장 `$SA1` 필드 모양을 공개 DEMO 좌표로 재구성한 fixture(실측 GPS 좌표는 커밋하지 않는다).
+SA1_FIX_BODY = "SA1,4758,4758034,1,287,530,1,0,2,375465126,1270757141,7"
+
+
+def _xor_frame(body: str) -> str:
+    checksum = 0
+    for character in body:
+        checksum ^= ord(character)
+    return f"${body}*{checksum:02X}"
 
 
 class NmeaParserTest(unittest.TestCase):
@@ -205,7 +216,149 @@ class Stm32ParserTest(unittest.TestCase):
         self.assertIsNone(parse_stm32_fix('{"ok":true,"event":"status"}'))
 
 
+class Stm32Ogt1ParserTest(unittest.TestCase):
+    """현재 실장 펌웨어의 `$SA1`/`$OGT1` CSV+XOR 텔레메트리 계약."""
+
+    def test_sa1_fix_frame_normalizes_like_json_v1(self) -> None:
+        result = parse_stm32_ogt1(_xor_frame(SA1_FIX_BODY) + "\r\n")
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result["protocol"], "ogt1")
+        self.assertEqual(result["sequence"], 4758)
+        self.assertEqual(result["uptime_ms"], 4758034)
+        gps = result["gps"]
+        self.assertTrue(gps["fix"])
+        self.assertAlmostEqual(gps["lat"], 37.5465126)
+        self.assertAlmostEqual(gps["lon"], 127.0757141)
+        self.assertEqual(gps["satellites"], 7)
+        self.assertIsNone(gps["acc_m"])
+        self.assertIsNone(gps["hdop"])
+        self.assertEqual(gps["accuracy_kind"], "unknown")
+        environment = result["environment"]
+        self.assertTrue(environment["valid"])
+        self.assertEqual(environment["temp_c"], 28.7)
+        self.assertEqual(environment["humidity_pct"], 53.0)
+        self.assertFalse(environment["pressure_valid"])
+        self.assertIsNone(environment["press_hpa"])
+        co = result["co"]
+        self.assertTrue(co["valid"])
+        self.assertEqual(co["ppm"], 0)
+        self.assertFalse(co["warming_up"])
+        self.assertEqual(co["level"], "normal")
+        self.assertFalse(co["alarm"])
+        self.assertFalse(result["rtc"]["valid"])
+        self.assertIsNone(result["rtc"]["iso_utc"])
+        self.assertFalse(result["power"]["valid"])
+        self.assertIsNone(result["power"]["jetson_gate_on"])
+        self.assertIsNone(result["power"]["shutdown_pending"])
+
+        # _apply_telemetry 호환: JSON v1 정규화 결과와 키 집합이 같아야 한다.
+        v1 = parse_stm32_telemetry(
+            encode_stm32_telemetry(
+                {
+                    "v": 1,
+                    "event": "telemetry",
+                    "seq": 1,
+                    "uptime_ms": 1000,
+                    "gps": {"fix": True, "lat": 37.5, "lon": 127.0, "sats": 7},
+                    "env": {"valid": True, "temp_c": 28.7, "humidity_pct": 53.0},
+                    "co": {"valid": True, "ppm": 0},
+                    "power": {"valid": False, "jetson_gate_on": None, "shutdown_pending": None},
+                }
+            )
+        )
+        assert v1 is not None
+        self.assertEqual(set(result), set(v1))
+        for section in ("gps", "rtc", "environment", "co", "power"):
+            self.assertEqual(set(result[section]), set(v1[section]), section)
+
+    def test_ogt1_prefix_and_other_prefixes(self) -> None:
+        result = parse_stm32_ogt1(_xor_frame("OGT1" + SA1_FIX_BODY[3:]))
+        assert result is not None
+        self.assertTrue(result["gps"]["fix"])
+        self.assertIsNone(parse_stm32_ogt1('{"v":1,"event":"telemetry"}'))
+        self.assertIsNone(parse_stm32_ogt1("$GNGGA,120004.00,,,,,0,00,99.9,,,,,,*46"))
+
+    def test_bad_checksum_and_field_count_are_rejected(self) -> None:
+        frame = _xor_frame(SA1_FIX_BODY)
+        wrong = f"{(int(frame[-2:], 16) ^ 0xFF):02X}"
+        with self.assertRaisesRegex(GpsInputError, "체크섬"):
+            parse_stm32_ogt1(frame[:-2] + wrong)
+        with self.assertRaisesRegex(GpsInputError, "필드 수"):
+            parse_stm32_ogt1(_xor_frame("SA1,4758,4758034,1,287,530,1,0,2,375465126,1270757141"))
+        with self.assertRaisesRegex(GpsInputError, "gps_state"):
+            parse_stm32_ogt1(_xor_frame("SA1,1,1000,1,287,530,1,0,3,0,0,0"))
+
+    def test_no_fix_has_no_coordinates(self) -> None:
+        for gps_state in (0, 1):
+            result = parse_stm32_ogt1(
+                _xor_frame(f"SA1,1,1000,1,287,530,1,0,{gps_state},375465126,1270757141,0")
+            )
+            assert result is not None
+            self.assertFalse(result["gps"]["fix"])
+            self.assertNotIn("lat", result["gps"])
+            self.assertNotIn("lon", result["gps"])
+            self.assertEqual(result["gps"]["satellites"], 0)
+
+    def test_invalid_dht_and_warming_co_have_no_values(self) -> None:
+        result = parse_stm32_ogt1(_xor_frame("SA1,1,1000,0,-50,910,0,0,1,0,0,0"))
+        assert result is not None
+        self.assertFalse(result["environment"]["valid"])
+        self.assertIsNone(result["environment"]["temp_c"])
+        self.assertIsNone(result["environment"]["humidity_pct"])
+        self.assertFalse(result["co"]["valid"])
+        self.assertTrue(result["co"]["warming_up"])
+        self.assertIsNone(result["co"]["ppm"])
+        self.assertEqual(result["co"]["level"], "unknown")
+        # 음수 온도는 dht_valid=1일 때 그대로 반영한다.
+        cold = parse_stm32_ogt1(_xor_frame("SA1,2,2000,1,-53,910,2,0,1,0,0,0"))
+        assert cold is not None
+        self.assertEqual(cold["environment"]["temp_c"], -5.3)
+        self.assertFalse(cold["co"]["valid"])
+        self.assertFalse(cold["co"]["warming_up"])
+
+
 class GpsServiceTest(unittest.TestCase):
+    def test_sa1_csv_line_updates_snapshot_with_ogt1_protocol(self) -> None:
+        service = GpsService(NMEA_REPLAY)
+        try:
+            service._handle_line(_xor_frame(SA1_FIX_BODY), mode="stm32")
+            snapshot = service.snapshot()
+
+            self.assertEqual(snapshot["rejected_lines"], 0)
+            self.assertIsNone(snapshot["error"])
+            self.assertEqual(snapshot["telemetry_protocol"], "ogt1")
+            self.assertEqual(snapshot["telemetry_sequence"], 4758)
+            self.assertTrue(snapshot["fix"])
+            self.assertAlmostEqual(snapshot["lat"], 37.5465126)
+            self.assertEqual(snapshot["satellites"], 7)
+            self.assertIsNone(snapshot["acc_m"])
+            self.assertEqual(snapshot["environment"]["temp_c"], 28.7)
+            self.assertTrue(snapshot["environment"]["valid"])
+            self.assertEqual(snapshot["co"]["ppm"], 0)
+            self.assertTrue(snapshot["co"]["valid"])
+            self.assertFalse(snapshot["rtc"]["valid"])
+            self.assertFalse(snapshot["power"]["valid"])
+
+            service._handle_line(
+                encode_stm32_telemetry(
+                    {
+                        "v": 1,
+                        "event": "telemetry",
+                        "seq": 4759,
+                        "uptime_ms": 4759034,
+                        "gps": {"fix": False},
+                        "env": {"valid": False},
+                        "co": {"valid": False},
+                    }
+                ),
+                mode="stm32",
+            )
+            self.assertEqual(service.snapshot()["telemetry_protocol"], "v1")
+        finally:
+            service.close()
+
     def test_button_event_is_published_without_coordinate_payload(self) -> None:
         service = GpsService(NMEA_REPLAY)
         try:

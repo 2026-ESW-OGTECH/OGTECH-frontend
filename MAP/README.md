@@ -20,7 +20,7 @@ Jetson Xavier NX에서 STM32H7A3ZI-Q (Nucleo-H7A3ZI-Q) 센서 허브의 GPS·온
 
 ## 구현 기능
 
-- STM32 `115200 8N1` JSONL 텔레메트리, CRC-16/CCITT-FALSE 검증
+- STM32 UART4 `115200 8N1` 정본 JSONL+CRC16과 실장 `$SA1`/`$OGT1`+XOR CSV 검증·정규화
 - 직렬 단선 후 2초 간격 자동 재연결 `[출처: gps_service.py]`
 - Air530 fix·마지막 좌표·경과 시간·위성 수·정확도 표시
 - SHT40 온도·습도, BMP390 기압·추세, ZE07-CO ppm·예열·경보 표시
@@ -45,7 +45,7 @@ cd OGTECH-frontend/MAP
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt
-python app.py --gps-mode stm32 --gps-port /dev/ttyACM0 --gps-baud 115200
+python app.py --gps-mode stm32 --gps-port /dev/ttyTHS0 --gps-baud 115200
 ```
 
 하드웨어 없이 NMEA 경로만 확인할 때:
@@ -89,11 +89,12 @@ Co-LLM은 저장된 지점의 이름/ID에 대응하는 열거형 action만 호�
 
 ## 물리 버튼·전원 gate 계약
 
-- 버튼은 active-low, 40 ms debounce이며 `PA0=power`, `PA1=checkpoint`, `PA4=voice`다. 서버는
+- 버튼은 목표 계약상 active-low, 40 ms debounce이며 `PA0=power`, `PA1=checkpoint`, `PA4=voice`다.
+  현재 정본 센서 펌웨어는 PA0을 DHT11로 쓰므로 버튼 핀 재배치 전까지 이 버튼 계약은 **미구현**이다. 서버는
   `power/checkpoint/voice`와 `pressed/released/held_ms`만 수용하고 좌표는 절대 전달하지 않는다.
 - `PA0`을 2초 이상 누른 뒤 놓으면 STM32가 `shutdown_requested`를 내보낸다. Jetson의
   `ogtech-power-manager`는 CRC로 검증된 pending을 확인하고 `/api/power/shutdown-ack`로 ACK를 먼저
-  보낸 뒤 `systemctl poweroff --no-block`을 요청한다. STM32는 ACK 뒤 `PC9` gate 차단을 **90초 후**로
+  보낸 뒤 `systemctl poweroff`를 요청한다. STM32는 ACK 뒤 `PC9` gate 차단을 **90초 후**로
   예약한다. systemd 요청이 실패하면 서비스가 즉시 `POWER OFF CANCEL`을 보내 예약을 취소한다.
   ACK가 없으면 **120초 후** pending을 취소하고 gate를 유지한다.
 - gate가 꺼진 상태에서 전원 버튼을 놓으면 STM32가 `PC9`을 다시 켠다. 이 절차는 전원 차단 사실이나
@@ -114,7 +115,7 @@ Co-LLM은 저장된 지점의 이름/ID에 대응하는 열거형 action만 호�
 python -B -m unittest discover -s tests -v
 ```
 
-현재 결과는 80개 전부 통과 `[실측: 2026-08-20]`이다. 테스트는 지도 회귀, NMEA/STM32 fix 호환, 텔레메트리 CRC 손상
+현재 결과는 87개 전부 통과 `[실측: 2026-08-30, PC·Jetson Python 3.8]`이다. 테스트는 지도 회귀, NMEA/STM32 fix 호환, 텔레메트리 CRC 손상
 거부, stale 센서, 선분 이탈 거리, 저장 지점·귀환 시각, 서울 일출몰과 극지 예외, 음성 action·부팅
 진단·제품 화면, DS3231 UTC·stale·OSF 경계, BMP390 확인 상태, 물리 버튼·전원 ACK, 3분 전 위치 역추적을 포함한다. 경로 cache는 `test_crossing_route_cache_is_rejected_until_progress_disambiguates_it`,
 `test_overlapping_route_cache_uses_late_progress_to_disambiguate`,

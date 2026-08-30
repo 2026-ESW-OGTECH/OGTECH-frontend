@@ -7,6 +7,7 @@ import json
 from math import asin, ceil, cos, isfinite, radians, sin, sqrt
 from pathlib import Path
 import re
+import tempfile
 from typing import Any, Iterable
 import xml.etree.ElementTree as ET
 
@@ -748,7 +749,6 @@ class OfflineMap:
     def write_runtime(self, path: str | Path) -> None:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = target.with_suffix(target.suffix + ".tmp")
         compact = {"ensure_ascii": False, "separators": (",", ":")}
         header = {
             "schema_version": RUNTIME_SCHEMA_VERSION,
@@ -757,32 +757,48 @@ class OfflineMap:
             "bounds": self.bounds,
             "warnings": list(dict.fromkeys(self.warnings)),
         }
-        with temporary.open("w", encoding="utf-8", newline="") as stream:
-            stream.write(json.dumps(header, **compact)[:-1])
-            stream.write(',"nodes":[')
-            first = True
-            for node_id, data in self.graph.nodes(data=True):
-                if not first:
-                    stream.write(",")
-                stream.write(json.dumps([str(node_id), data["x"], data["y"]], **compact))
-                first = False
-            stream.write('],"edges":[')
-            first = True
-            for u, v, key, data in self.graph.edges(keys=True, data=True):
-                item: dict[str, Any] = {
-                    "u": str(u),
-                    "v": str(v),
-                    "key": str(key),
-                    "length_m": round(data["length"], 6),
-                }
-                if isinstance(data.get("geometry"), str):
-                    item["geometry"] = data["geometry"]
-                if not first:
-                    stream.write(",")
-                stream.write(json.dumps(item, **compact))
-                first = False
-            stream.write("]}")
-        temporary.replace(target)
+        # 같은 디렉터리의 고유 임시 파일에 쓴 뒤 원자적으로 교체한다.
+        # 고정 이름(active_map.json.tmp)은 import 2건이 겹치면 서로를 덮었다(WORKLOG #18).
+        stream = tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="",
+            dir=str(target.parent),
+            prefix=f"{target.name}.",
+            suffix=".tmp",
+            delete=False,
+        )
+        temporary = Path(stream.name)
+        try:
+            with stream:
+                stream.write(json.dumps(header, **compact)[:-1])
+                stream.write(',"nodes":[')
+                first = True
+                for node_id, data in self.graph.nodes(data=True):
+                    if not first:
+                        stream.write(",")
+                    stream.write(json.dumps([str(node_id), data["x"], data["y"]], **compact))
+                    first = False
+                stream.write('],"edges":[')
+                first = True
+                for u, v, key, data in self.graph.edges(keys=True, data=True):
+                    item: dict[str, Any] = {
+                        "u": str(u),
+                        "v": str(v),
+                        "key": str(key),
+                        "length_m": round(data["length"], 6),
+                    }
+                    if isinstance(data.get("geometry"), str):
+                        item["geometry"] = data["geometry"]
+                    if not first:
+                        stream.write(",")
+                    stream.write(json.dumps(item, **compact))
+                    first = False
+                stream.write("]}")
+            temporary.replace(target)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
 
 
 def load_map_source(path: str | Path) -> OfflineMap:

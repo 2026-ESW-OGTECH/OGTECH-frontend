@@ -11,8 +11,9 @@
 | `OGTECH-embedded/README.md` | 구현/미구현 경계와 검증 상태 |
 | `MAP/gps_service.py`, `MAP/jetson/` | Jetson 측 파서와 실행 절차 |
 
-> **프로토콜 상태 —** 펌웨어가 Jetson 파서와 같은 **JSONL + CRC16 프로토콜 v1**을 말한다
-> (2026-08-21 구현, 선택지 B). 호스트 계약 테스트로 왕복 검증했으나 **실물 보드 연동은 `[미검증]`**이다.
+> **프로토콜 상태 —** 정본 펌웨어는 UART4에서 **JSONL + CRC16 프로토콜 v1**을 말하고,
+> Jetson 파서는 현재 실장된 구 펌웨어의 `$SA1`/`$OGT1` + XOR CSV도 같은 상태 모델로 정규화한다.
+> 양쪽 형식은 호스트 계약 테스트로 검증했다. 정본 펌웨어의 CubeIDE 실빌드·플래시는 `[미검증]`이다.
 > 프로토콜 세부와 검증 근거는 [6. 프로토콜 현황](#6-프로토콜-현황--jsonl-v1-구현-완료--실장-미검증)에 있다.
 
 ## 1. 대상 보드와 빌드 환경
@@ -21,7 +22,8 @@
 - 빌드: **STM32CubeIDE + HAL**. Arduino IDE/CLI·PlatformIO로는 빌드되지 않는다
   `[출처: OGTECH-embedded/README.md]`
 - 저장소에 있는 것: 사용자 코드 `Core/Inc`·`Core/Src` — 드라이버(`air530_gps`·`dht11`·`ze16b_co`·`co_alarm`·`jetson_gate`·`console`), 프로토콜(`telemetry_protocol`), 통합 계층(`sensor_app`), 진입점(`main.c`)
-- 저장소에 **없는 것**: `.ioc`, `main.h`, HAL 드라이버, CubeIDE 프로젝트 파일
+- 저장소에 있는 CubeMX 대조본: `OGTECH-embedded/cubemx/Core/`의 `main.h`, IRQ, MSP(핀·클럭·NVIC)
+- 저장소에 **없는 것**: `.ioc`, HAL 드라이버, `.project` 등 완전한 CubeIDE 프로젝트 파일
 
 ### CubeIDE 프로젝트 생성 시 주의
 
@@ -35,9 +37,8 @@
    `Core/Inc`·`Core/Src`의 모듈 **전부**를 프로젝트 소스에 추가해야 한다.
 
 > **재현성 남은 과제 (팀 과제)** — 제3자가 저장소만으로 빌드할 수 있도록 CubeIDE 프로젝트 전체
-> (`.ioc`, `main.h`, 프로젝트 파일)를 `OGTECH-embedded`에 커밋해야 한다. 프로젝트가 커밋되기
-> 전까지 아래 배선표의 USART 핀과 DHT11 핀은 **저장소만으로는 확정할 수 없다** `[확인 필요]`.
-> 현재 코드 기준 빌드 로그(플래시/RAM 사용량)도 아직 없다 `[미검증]`.
+> (`.ioc`, HAL 드라이버, 프로젝트 파일)를 커밋해야 한다. `cubemx/Core/`로 핀·IRQ 설정은 기록했지만,
+> 현재 코드 기준 빌드 로그(플래시/RAM 사용량)는 아직 없다 `[미검증]`.
 
 ## 2. 현재 배선 (실장 부품만)
 
@@ -48,8 +49,8 @@ flowchart LR
   DHT["DHT11"] -->|"GPIO 단선 · 비트뱅잉"| STM
   STM -->|"PB0 · HIGH=ON"| BUZ["부저"]
   STM -->|"PC9 · active-high"| GATE["Jetson 전원 MOSFET gate"]
-  STM -->|"USART3 · 115200 8N1 · 사람이 읽는 한 줄"| VCP["ST-LINK VCP · /dev/ttyACM*"]
-  VCP -. "현재 파서 형식 불일치" .-> JETSON["Jetson Xavier NX"]
+  STM -->|"UART4 · 115200 8N1 · JSONL v1"| JETSON["Jetson Xavier NX · /dev/ttyTHS0"]
+  STM -->|"USART3 · 115200 · 동일 출력 미러"| VCP["ST-LINK VCP · 사람 콘솔"]
   JETSON --> API["Python 로컬 API :8790"]
   API --> UI["Chromium /product/"]
 ```
@@ -61,16 +62,16 @@ Jetson의 화면 경보음은 보조 출력일 뿐이다.
 
 | 인터페이스 | 펌웨어 설정 | 장치 | 핀 확정 여부 |
 |---|---|---|---|
-| USART1 | 9600 8N1, 1바이트 인터럽트 수신 + 256바이트 링 버퍼 | Air530 GNSS (NMEA) | `.ioc` 정본 `[확인 필요]` |
-| USART2 | 9600 8N1, 1바이트 인터럽트 수신 + 64바이트 링 버퍼 | ZE16B-CO (9바이트 능동 업로드) | `.ioc` 정본 `[확인 필요]` |
-| USART3 | 115200 8N1, **송수신** (상태 출력 + 명령 수신) | 콘솔 = ST-LINK VCP | Nucleo-144 기본 배선 |
-| GPIO 단선 | `GPIO_MODE_OUTPUT_OD` ↔ 입력 전환, DWT 마이크로초 지연 비트뱅잉 | DHT11 (외부 풀업 저항 필요) | `main.h` 정본 `[확인 필요]` |
+| USART1 | 9600 8N1, 1바이트 인터럽트 수신 + 256바이트 링 버퍼 | Air530 GNSS (PB6/PB7, NMEA) | `cubemx/Core/` 대조본 |
+| USART2 | 9600 8N1, 1바이트 인터럽트 수신 + 64바이트 링 버퍼 | ZE16B-CO (PD5/PD6, 9바이트 능동 업로드) | `cubemx/Core/` 대조본 |
+| **UART4** | 115200 8N1, 송수신 | Jetson 40핀 `/dev/ttyTHS0` (PC10 TX/PC11 RX) | `cubemx/Core/` 대조본 |
+| USART3 | 115200 8N1, 송수신 | 사람 콘솔 미러 = ST-LINK VCP (PD8/PD9) | `cubemx/Core/` 대조본 |
+| GPIO 단선 | `GPIO_MODE_OUTPUT_OD` ↔ 입력 전환, DWT 마이크로초 지연 비트뱅잉 | DHT11 PA0 (외부 풀업 저항 필요) | `cubemx/Core/Inc/main.h` |
 | **PB0** | `GPIO_MODE_OUTPUT_PP`, 초기값 LOW, `HIGH=ON` | 부저 | 코드에 하드코딩 |
 | **PC9** | `GPIO_MODE_OUTPUT_PP`, 초기값 HIGH, active-high | Jetson 전원 MOSFET 게이트 | 코드에 하드코딩 |
 
-펌웨어가 스스로 결정하는 핀은 **PB0(`co_alarm.c`)과 PC9(`jetson_gate.c`) 두 개뿐**이다. 나머지 UART 핀 배정은
-CubeMX가 생성하는 `HAL_UART_MspInit`(별도 파일)에 있고, DHT11 핀은 `main.h` 매크로다.
-저장소에 그 파일들이 없으므로 이 문서는 물리 핀 번호를 단정하지 않는다.
+PB0·PC9는 드라이버가 직접 초기화하고, UART와 DHT11 핀은 `cubemx/Core/` 대조본에 기록했다.
+실제 `.ioc`를 재생성할 때 USART1/2/3/UART4 global interrupt를 전부 Enable해야 한다.
 
 ### Air530 GNSS — USART1
 
@@ -128,10 +129,8 @@ CubeMX가 생성하는 `HAL_UART_MspInit`(별도 파일)에 있고, DHT11 핀은
 | `DATA` | `DHT11_DATA_Pin` | **외부 풀업 저항 필요** (펌웨어는 `GPIO_NOPULL` + open-drain) |
 
 판독 시퀀스는 `DATA`를 20 ms LOW → 해제 → 30 µs 뒤 입력 전환 → 40비트 수신이다.
-타이밍 크리티컬 구간에서 `__disable_irq()`로 인터럽트를 차단한다(정상 판독 약 4~5 ms,
-타임아웃 포함 최악 약 9 ms). 그 사이 9600 bps UART는 포트당 최대 약 9바이트를 잃을 수 있고,
-잃은 프레임은 NMEA/ZE16B 체크섬이 걸러낸 뒤 다음 주기에 자연 복구된다.
-5바이트 체크섬이 맞지 않으면 `DHT11=ERROR`다.
+판독 중 인터럽트는 막지 않는다. DWT LAR 잠금을 해제해 CYCCNT를 켜고, 카운터가 멈춘 경우에도
+HAL tick 2 ms 상한으로 각 대기 루프를 빠져나온다. 5바이트 체크섬이 맞지 않으면 `DHT11=ERROR`다.
 
 ### 부저 — PB0
 
@@ -158,7 +157,7 @@ CubeMX가 생성하는 `HAL_UART_MspInit`(별도 파일)에 있고, DHT11 핀은
 PC9에 Jetson 전원을 직접 물리지 말고 정격에 맞는 MOSFET/load-switch·풀업/풀다운·역류 방지
 회로를 둔다. 실제 게이트 극성·전원 시퀀스·복귀 동작은 `[미검증]`이다.
 
-## 3. 콘솔 프로토콜 (USART3 115200 8N1)
+## 3. Jetson 링크 프로토콜 (UART4 115200 8N1, USART3 미러)
 
 ### 부팅 배너
 
@@ -167,7 +166,7 @@ PC9에 Jetson 전원을 직접 물리지 말고 정격에 맞는 MOSFET/load-swi
 
 ```text
 === SURVIVAL SENSOR START ===
-USART1=Air530 GPS 9600, USART2=ZE16B-CO 9600, USART3=Jetson/TeraTerm 115200
+USART1=Air530 GPS 9600, USART2=ZE16B-CO 9600, UART4=Jetson JSONL 115200, USART3=console mirror 115200
 CMD: PING | STATUS | GATE ON/OFF | STREAM ON/OFF | ALERT TRAIL ON/CAUTION/OFF | POWER OFF ACK/CANCEL
 ```
 
@@ -197,8 +196,8 @@ DHT11 판독과 텔레메트리 송출이 같은 주기에 묶여 있다. 마지
 
 ### 명령
 
-USART3로 수신하며 `\r` 또는 `\n`으로 종결한다. `strcmp` **완전 일치**이므로 대소문자와 공백이
-정확해야 하고, 앞뒤 공백이나 소문자는 통하지 않는다. 한 줄은 31자까지이며 넘치면 개행까지 통째로
+UART4 또는 USART3로 수신하며 `\r` 또는 `\n`으로 종결한다. `strcmp` **완전 일치**이므로 대소문자와 공백이
+정확해야 하고, 앞뒤 공백이나 소문자는 통하지 않는다. 한 줄은 63자까지이며 넘치면 개행까지 통째로
 버리고 `ERR LINE_TOO_LONG`으로 답한다.
 
 | 명령 | 응답 | 동작 |
@@ -243,38 +242,25 @@ USART3로 수신하며 `\r` 또는 `\n`으로 종결한다. `strcmp` **완전 �
 
 ## 5. Jetson 연결과 실행
 
-> **실제 배치 (2026-08-30 확인 · Jetson Xavier NX devkit, L4T R35.6.5)** — 아래 5.1~5.6의 USB(`/dev/ttyACM0`)·JSONL v1
-> 절차와 달리 현재 보드는 **40핀 UART `/dev/ttyTHS0`(serial@3100000)** 에 물려 있고, 펌웨어는 `$SA1,…*XOR` CSV(1 Hz, 115200)를
-> 보낸다. 수신은 `app.py`가 아니라 **`kiosk/uart_server.py --port /dev/ttyTHS0 --http-port 8791`**(정적 UI + `/api/telemetry`)이다.
-> `gps_service`의 JSONL 파서는 이 프레임을 거부하므로 `--gps-mode stm32`로는 붙지 않는다(WORKLOG #38·#40).
+> **실제 배치 (2026-08-30 확인 · Jetson Xavier NX devkit, L4T R35.6.5)** — 보드는 40핀 UART
+> **`/dev/ttyTHS0`(serial@3100000)** 에 물려 있다. 현재 플래시된 구 펌웨어는 `$SA1,…*XOR` CSV(1 Hz)를
+> 보내고, 다음 플래시 대상 정본 `Core/`는 같은 배선으로 JSONL v1(2초)을 보낸다. `gps_service.py`가 두 형식을
+> 모두 검증·정규화하므로 **같은 `app.py --gps-mode stm32`와 새 `/product/` UI**를 사용한다. 구 8791
+> `kiosk/uart_server.py`는 복구·비교용 진단 도구일 뿐 운영 경로가 아니다.
 >
 > **필수 사전 조치(한 번):** `sudo systemctl disable --now nvgetty` · `sudo usermod -aG dialout kit`.
 > JetPack 기본 `nvgetty.service`는 부팅 시 ttyTHS0에 `getty -L 115200`을 띄워 STM32 프레임을 로그인 입력으로 소비하고
 > 프롬프트·에코를 STM32로 되보낸다. 2026-08-30 이 때문에 STM32가 송출을 멈춰 브리지가 24분간 0프레임(UART 오버런 70,349회)이었고
 > 리셋 후 복구됐다. 비활성화 뒤 재부팅에서는 리셋 없이 즉시 수신(저널 getty 0건, 오류 카운터 0).
 
-### 5.1 물리 연결 — USB 방식 권장
+### 5.1 물리 연결 — Jetson 40핀 UART
 
-Jetson 40핀 UART는 핀 멀티플렉스·콘솔 설정 영향을 받는다. 시연에서는 USB 직렬 장치가 가장 단순하다.
+1. STM32 PC10(UART4 TX) → Jetson pin 10(RX), STM32 PC11(UART4 RX) ← Jetson pin 8(TX), GND를 공통 연결한다.
+2. 두 보드 모두 **3.3 V TTL**만 사용한다. 5 V UART나 전원 VCC를 신호 핀에 연결하지 않는다.
+3. 최초 한 번 `sudo systemctl disable --now nvgetty`를 실행하고 `kit` 사용자를 `dialout`에 넣은 뒤 재로그인한다.
+4. `ls -l /dev/ttyTHS0`이 `root dialout`이고 `systemctl is-active nvgetty`가 `inactive`인지 확인한다.
 
-1. **Nucleo의 ST-LINK USB를 Jetson에 그대로 연결한다.** USART3 콘솔이 이 포트로 나오므로
-   추가 배선이 필요 없다. 보통 `/dev/ttyACM0`으로 보인다 `[미검증]`.
-2. 별도 USB-UART를 쓸 경우 **3.3 V TTL** 제품을 사용하고, `TX ↔ USART3 RX`, `RX ↔ USART3 TX`,
-   `GND ↔ GND`로 연결한다.
-3. STM32를 별도 전원으로 구동할 때 USB-UART의 `VCC`는 연결하지 않는다. Nucleo의 USB 전원과 외부
-   전원을 함께 쓸 때는 보드 전원 점퍼 설명서를 먼저 확인해 전원을 병렬 연결하지 않는다.
-
-장치 경로는 부팅마다 달라질 수 있는 `/dev/ttyACM0`보다 고정 심볼릭 링크를 우선한다.
-
-```bash
-ls -l /dev/serial/by-id/
-```
-
-출력된 전체 경로를 `OGTECH_STM32_PORT`에 넣는다.
-
-> Jetson 40핀 헤더 직결은 보조 수단이다. JetPack 이미지와 캐리어보드에 따라 `/dev/ttyTHS0` 등
-> 장치명이 달라지므로 `Jetson-IO`와 현재 보드 핀맵을 확인한 뒤 사용한다 `[미검증]`.
-> 두 보드 모두 3.3 V 로직만 쓰고 5 V TTL을 연결하지 않는다.
+USART3/ST-LINK VCP는 사람 콘솔 미러이므로 필요하면 개발 PC에 연결한다. Jetson 운영 입력은 UART4다.
 
 ### 5.2 먼저 사람 눈으로 확인
 
@@ -283,7 +269,7 @@ Jetson 서비스를 올리기 전에 시리얼 터미널로 **부팅 배너 3줄
 
 ```bash
 sudo apt-get install -y python3-serial     # 없으면
-python3 -m serial.tools.miniterm /dev/ttyACM0 115200
+python3 -m serial.tools.miniterm /dev/ttyTHS0 115200
 ```
 
 `PING` → `PONG`, `GATE OFF` → `ACK GATE=OFF` 왕복을 확인한다. JSONL이 눈에 거슬리면
@@ -295,19 +281,19 @@ Jetson 서비스도 접속하며 `STREAM ON`을 보내므로 잊어도 복구된
 Jetson으로 옮겨야 하는 폴더는 세 개다.
 
 ```text
-OGTECH-frontend/MAP/            → /opt/ogtech/MAP
-OGTECH-llm/Co-LLM/              → /opt/ogtech/Co-LLM
+OGTECH-frontend/                → /home/kit/ogtech/OGTECH-frontend
+OGTECH-llm/                     → /home/kit/ogtech/OGTECH-llm
 OGTECH-embedded/Core/           → 재플래시·참조용
 ```
 
 ```bash
-cd /opt/ogtech/MAP
+cd /home/kit/ogtech/OGTECH-frontend/MAP
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --no-index --find-links wheels -r requirements.txt
 chmod +x jetson/start-map.sh jetson/start-kiosk.sh
 
-cd /opt/ogtech/Co-LLM
+cd /home/kit/ogtech/OGTECH-llm/Co-LLM
 python3 -m venv .venv
 . .venv/bin/activate
 chmod +x scripts/07_product_voice.sh scripts/08_device_monitor.sh scripts/09_physical_voice.sh
@@ -332,8 +318,8 @@ timedatectl
 
 | 변수 | 기본값 | 뜻 |
 |---|---|---|
-| `OGTECH_STM32_PORT` | `/dev/ttyACM0` | STM32 직렬 포트. `/dev/serial/by-id/...` 권장 |
-| `OGTECH_STM32_BAUD` | `115200` | 펌웨어 USART3 보율과 일치해야 한다 |
+| `OGTECH_STM32_PORT` | `/dev/ttyTHS0` | Xavier NX devkit 40핀 UART |
+| `OGTECH_STM32_BAUD` | `115200` | 펌웨어 UART4 보율과 일치해야 한다 |
 | `OGTECH_UTC_OFFSET_MIN` | `540` | 한국 고정 시연값 |
 | `OGTECH_TRAIL_THRESHOLD_M` | `30` | 트레일 이탈 임계 `[추정: 현장 실측 전 기본값]` |
 | `OGTECH_RETURN_SPEED_MPS` | `0.8` | 보행 속도 `[추정]` |
@@ -342,8 +328,8 @@ timedatectl
 ### 5.5 수동 실행
 
 ```bash
-cd /opt/ogtech/MAP
-export OGTECH_STM32_PORT=/dev/serial/by-id/<실제-장치-ID>
+cd /home/kit/ogtech/OGTECH-frontend/MAP
+export OGTECH_STM32_PORT=/dev/ttyTHS0
 export OGTECH_UTC_OFFSET_MIN=540
 ./jetson/start-map.sh
 ```
@@ -370,7 +356,10 @@ http://127.0.0.1:8790/video/       촬영용 자동 DEMO 화면
 ./jetson/start-kiosk.sh
 ```
 
-`--autoplay-policy=no-user-gesture-required`는 브라우저 CO 보조 경보음을 위해 사용한다
+`start-kiosk.sh`는 MAP API(`/product/`) 응답을 최대 60초 기다린 뒤 브라우저를 띄운다. Firefox가 있으면
+전용 프로필 `~/.config/ogtech/firefox-kiosk`(`OGTECH_FIREFOX_PROFILE`로 변경)에 `user.js`를 써서
+정전 뒤 세션 복구·안전 모드·첫 실행 안내가 제품 화면을 가리지 않게 하고, `--kiosk --no-remote`로 실행한다.
+Chromium 폴백의 `--autoplay-policy=no-user-gesture-required`는 브라우저 CO 보조 경보음을 위해 사용한다
 `[출처: jetson/start-kiosk.sh]`. 물리 경보는 이 옵션과 무관하게 STM32에서 작동한다.
 
 ### 5.6 저하 부팅 — 직렬 포트가 없어도 죽지 않는다
@@ -386,18 +375,18 @@ http://127.0.0.1:8790/video/       촬영용 자동 DEMO 화면
 
 ### 5.7 systemd 자동 시작
 
-예시 파일은 `MAP/jetson/`과 `Co-LLM/jetson/`에 있다. 설치 위치와 서비스 사용자 이름(`safeaid`)이
-다르면 먼저 파일을 수정한다. 순서는 MAP API를 먼저 준비하고, 그 API에 의존하는 전원·물리 음성·선제
+예시 파일은 `MAP/jetson/`과 `Co-LLM/jetson/`에 있으며 실기 사용자 `kit`과 `/home/kit/ogtech` 경로를 쓴다.
+순서는 MAP API를 먼저 준비하고, 그 API에 의존하는 전원·물리 음성·선제
 음성 서비스를 올린 뒤 키오스크를 마지막에 시작한다.
 
 ```bash
 sudo install -d /etc/ogtech
 sudo install -m 0644 jetson/map.env.example /etc/ogtech/map.env
-sudo install -m 0644 /opt/ogtech/Co-LLM/jetson/audio.env.example /etc/ogtech/audio.env
+sudo install -m 0644 /home/kit/ogtech/OGTECH-llm/Co-LLM/jetson/audio.env.example /etc/ogtech/audio.env
 sudo install -m 0644 jetson/ogtech-map.service /etc/systemd/system/
 sudo install -m 0644 jetson/ogtech-power-manager.service /etc/systemd/system/
-sudo install -m 0644 /opt/ogtech/Co-LLM/jetson/ogtech-physical-voice.service /etc/systemd/system/
-sudo install -m 0644 /opt/ogtech/Co-LLM/jetson/ogtech-device-monitor.service /etc/systemd/system/
+sudo install -m 0644 /home/kit/ogtech/OGTECH-llm/Co-LLM/jetson/ogtech-physical-voice.service /etc/systemd/system/
+sudo install -m 0644 /home/kit/ogtech/OGTECH-llm/Co-LLM/jetson/ogtech-device-monitor.service /etc/systemd/system/
 sudo install -m 0644 jetson/ogtech-kiosk.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now ogtech-map.service
@@ -406,6 +395,30 @@ sudo systemctl enable --now ogtech-physical-voice.service
 sudo systemctl enable --now ogtech-device-monitor.service
 sudo systemctl enable --now ogtech-kiosk.service
 ```
+
+`sudo` 설치 권한이 없는 실기 사용자 환경에서는 저장소의 `jetson/user/*.service`를 사용자 유닛으로 쓴다.
+`kit`은 이미 `dialout` 그룹이어야 하며, 전원 종료 매니저는 root 권한이 필요하므로 이 경로에서 활성화하지 않는다.
+실기(2026-08-30)는 이 사용자 유닛 경로로 배포돼 있다.
+
+```bash
+mkdir -p ~/.config/ogtech ~/.config/systemd/user
+cp jetson/map.env.example ~/.config/ogtech/map.env
+cp jetson/user/ogtech-map.service jetson/user/ogtech-kiosk.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now ogtech-map.service ogtech-kiosk.service
+sudo loginctl enable-linger kit   # 로그인 전에도 사용자 매니저를 띄워 MAP/LLM을 먼저 준비(선택, 1회)
+```
+
+부팅 시 자동 표시 조건:
+
+- GDM 자동 로그인(`/etc/gdm3/custom.conf`의 `AutomaticLoginEnable=true`, `AutomaticLogin=kit`, `WaylandEnable=false`)이
+  켜져 있어야 X 세션과 `graphical-session.target`이 올라온다.
+- `ogtech-map.service`는 `WantedBy=default.target`이며 `After=default.target`을 쓰지 않는다. 그 조합은 systemd가
+  순서 순환으로 판정해 부팅 시 잡을 삭제한다(실기에서 map/kiosk가 inactive로 남은 원인).
+- `ogtech-kiosk.service`는 `WantedBy=graphical-session.target` + `PartOf=graphical-session.target`이다. GNOME 세션이
+  `DISPLAY`/`XAUTHORITY`를 사용자 매니저에 반입한 뒤에 시작되므로 별도의 `Environment=DISPLAY`가 필요 없다.
+- 확인은 실제 재부팅 뒤 `systemctl --user is-active ogtech-map.service ogtech-kiosk.service`와 화면 캡처로 한다.
+  `systemctl --user start`로 되는 것과 부팅 자동 기동은 다르다.
 
 로그:
 
@@ -421,15 +434,16 @@ journalctl -u ogtech-kiosk.service -f
 > 버튼과 handshake가 없으므로(7절 참조) 이 서비스는 아직 할 일이 없다. 서비스를 올려도
 > 무해하지만, 동작을 시연 항목에 넣지 않는다.
 
-## 6. 프로토콜 현황 — JSONL v1 구현 완료 · 실장 `[미검증]`
+## 6. 프로토콜 현황 — 정본 JSONL v1 + 실장 CSV 호환
 
-한때 이 연동의 유일한 차단 요인이던 프로토콜 단절은 **선택지 B(펌웨어 JSONL+CRC16 구현)로
-2026-08-21에 해소했다.** 양쪽 계층이 이제 같은 형식을 말한다.
+정본은 JSONL+CRC16 v1이다. 다만 현재 보드에는 출처가 남지 않은 `$SA1`+XOR CSV 펌웨어가
+플래시되어 있어, 재플래시 전에도 새 제품 UI를 쓸 수 있도록 Jetson 파서에 제한된 호환 입력을 둔다.
 
 | 계층 | 형식 |
 |---|---|
-| 펌웨어 USART3 출력 | **JSONL + 끝 필드 `"crc16":"XXXX"`** (CRC-16/CCITT-FALSE) — 3절 참조 |
-| Jetson 파서 입력 | 동일 — `parse_stm32_telemetry` / `parse_stm32_output` / `parse_stm32_power_event` |
+| 정본 펌웨어 UART4 출력 | **JSONL + 끝 필드 `"crc16":"XXXX"`** (CRC-16/CCITT-FALSE) — 3절 참조 |
+| 현재 실장 구 펌웨어 | `$SA1,…*XX` (XOR, 1 Hz), 명령 채널·RTC·전원·경보 레벨 없음 |
+| Jetson 파서 입력 | `parse_stm32_telemetry`(정본) + `parse_stm32_ogt1`(`$SA1`/`$OGT1` 호환) |
 
 명령 방향도 맞췄다. `GpsService`가 보내는 `STREAM ON`, `ALERT TRAIL ON/CAUTION/OFF`,
 `POWER OFF ACK/CANCEL`을 펌웨어가 전부 처리한다(3절 명령 표). `event:"button"`은 물리 버튼이
@@ -442,7 +456,7 @@ journalctl -u ogtech-kiosk.service -f
 1. `tests/host/test_protocol.c` — CRC 표준 벡터(`"123456789"` → `0x29B1`)와 이벤트 3종 골든 JSON.
 2. `tests/host/test_firmware_sim.c` — mock HAL 위에서 `Core/Src` 전체(드라이버·통합 계층·`main.c`)를 **그대로 컴파일**해
    명령 링버퍼 → 응답 경로를 구동(과길이 폐기·watchdog·gate 전이 포함).
-3. `tests/test_protocol_contract.py` — 시뮬레이터가 낸 USART3 출력을 이 저장소의
+3. `tests/test_protocol_contract.py` — 시뮬레이터가 낸 UART4 출력을 이 저장소의
    `gps_service.py` 파서에 그대로 먹여 왕복 검증(값 정규화·seq 연속성·CRC 동치·오염 바이트 거부).
 
 ### 남은 것 — 실물 연동 `[미검증]`
@@ -450,7 +464,7 @@ journalctl -u ogtech-kiosk.service -f
 호스트 검증은 형식 계약까지다. 다음은 하드웨어가 있어야 한다.
 
 - CubeIDE 프로젝트에 `telemetry_protocol.c/.h`를 추가한 **실빌드**와 플래시 (1절 주의사항 참조)
-- 실보드 USART3 ↔ Jetson 직렬로 `/api/device`에 실제 센서 값이 채워지는지 (9절 체크리스트)
+- 정본 펌웨어를 실보드에 플래시한 뒤 UART4 ↔ Jetson으로 `/api/device`에 실제 센서 값이 채워지는지
 - 115200 보율에서 2초 주기 ~400바이트 텔레메트리의 장시간 안정성
 
 > 실물 연동 전까지 `/product/`가 센서 값을 보여준다면 replay 모드이거나 샘플 데이터이며,
@@ -541,14 +555,12 @@ SET RTC UTC YYYY-MM-DDTHH:MM:SSZ   ← DS3231 연결 후
 
 | 증상 | 확인 순서 |
 |---|---|
-| 터미널에 아무것도 안 나온다 | 보율이 **115200**인지 → ST-LINK USB가 Jetson에 잡혔는지(`ls /dev/ttyACM*`) → 리셋 버튼을 눌러 부팅 배너 3줄이 나오는지 |
-| `Permission denied: /dev/ttyACM0` | 장치의 실제 소유 그룹을 `ls -l /dev/ttyACM0`으로 확인한 뒤 서비스 사용자(`safeaid`)를 그 그룹에 넣는다. Ubuntu는 보통 `dialout`이지만 단정하지 않는다 `[미검증]` |
-| 포트 경로가 부팅마다 바뀐다 | `ls -l /dev/serial/by-id/`의 고정 경로를 `OGTECH_STM32_PORT`에 넣는다 |
-| 서버는 뜨는데 `/product/`가 계속 회색 | `/api/device`에서 `received_lines`는 느는데 `rejected_lines`도 같이 늘면 **보드에 구버전(콘솔 형식) 펌웨어가 올라가 있는 것** — JSONL 펌웨어를 다시 플래시한다. 둘 다 안 늘면 포트·보율부터 다시 본다 |
+| 터미널에 아무것도 안 나온다 | 보율 115200 → `/dev/ttyTHS0` 권한 → `nvgetty` inactive → PC10/PC11 TX/RX 교차 → GND 공통 순으로 확인 |
+| 서버는 뜨는데 `/product/`가 계속 회색 | `/api/gps`의 `received_lines`·`rejected_lines`·`error`를 본다. `$SA1`/`$OGT1`/JSONL v1은 모두 수용하므로 둘 다 안 늘면 포트·보율·배선 문제다 |
 | `curl /api/device`에 `connected=false` | `start-map.sh`가 경고를 찍고 저하 부팅했는지 로그 확인 → 케이블 재연결 후 2초 재시도 루프가 복구하는지 |
 | `CO=NOT_FOUND`가 사라지지 않는다 | ZE16B-CO 전원 정격 → TX/RX가 뒤바뀌지 않았는지 → 보율 9600 → 프레임 헤더 `FF 04 03`이 맞는지 |
 | `CO=WARMING_UP`이 안 끝난다 | 30초 예열이다. 남은 초가 줄어들지 않으면 STM32가 계속 리셋되고 있는지 확인 |
-| 40핀 UART 브리지가 계속 `수신 대기`(화면 OFFLINE) | `journalctl -b \| grep -iE "ttyTHS0\|login\["`에 getty/login 흔적이 있으면 `nvgetty`가 포트를 건드린 것 — `sudo systemctl disable --now nvgetty` 후 STM32 리셋. 바이트 도착 여부는 `/proc/interrupts`로 보지 말고(정상 수신은 DMA라 안 늘어남) `TIOCGICOUNT`의 rx/overrun/brk로 본다 |
+| 40핀 UART가 계속 수신 대기 | `journalctl -b \| grep -iE "ttyTHS0\|login\["`에 getty/login 흔적이 있으면 `nvgetty`가 포트를 건드린 것 — `sudo systemctl disable --now nvgetty` 후 STM32 리셋. 바이트 도착 여부는 `/proc/interrupts`로 보지 말고 `TIOCGICOUNT`의 rx/overrun/brk로 본다 |
 | `Permission denied: /dev/ttyTHS0` | `ls -l /dev/ttyTHS0`이 `root tty 620`이면 getty 흔적. nvgetty 비활성화 + 재부팅 후 `root dialout 660`이 되므로 실행 사용자를 `dialout`에 넣는다 |
 | `GPS=NOT_FOUND`가 계속된다 | NMEA가 5초 이상 없다는 뜻이다. 안테나·야외 이동 → TX/RX 방향 → 보율 9600 |
 | `GPS=NO_FIX`에서 안 올라간다 | NMEA는 들어오는데 fix가 없는 상태다. `SAT` 수를 보며 하늘이 열린 곳에서 대기 |
@@ -577,7 +589,8 @@ SET RTC UTC YYYY-MM-DDTHH:MM:SSZ   ← DS3231 연결 후
 - [ ] 실내에서 `GPS=NOT_FOUND` / `GPS=NO_FIX`가 정직하게 나오는지
 - [ ] `GATE OFF` → `ACK GATE=OFF` → Jetson 전원 차단 → `GATE ON`으로 복귀
 - [ ] **Jetson 전원을 끈 상태(`GATE=OFF`)에서 CO 경보 연속 20회**
-- [ ] 실보드 연결에서 `/api/device`에 실제 센서 값이 채워지고 `rejected_lines`가 늘지 않는지 (6절 프로토콜 v1)
+- [x] 현재 `$SA1` 실장본에서 `/api/device`에 GPS·DHT11·ZE16B 값이 채워지고 `telemetry_protocol=ogt1`인지 (2026-08-30 Jetson 확인)
+- [ ] 정본 JSONL v1 펌웨어 플래시 뒤 `telemetry_protocol=v1`, 명령 왕복, `rejected_lines` 무증가 확인
 - [ ] `ALERT TRAIL ON` → `event:"output"` ACK 수신, 30초 방치 시 watchdog 자동 off 통지
 - [ ] 직렬 케이블 분리 후 화면이 3초 안에 회색/연결 끊김으로 전환
 - [ ] 케이블 재연결 후 2초 재연결 루프가 자동 복구

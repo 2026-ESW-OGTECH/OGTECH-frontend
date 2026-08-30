@@ -112,30 +112,6 @@
           </button>
         </nav>
       </div>
-
-      <section class="boot-notice" id="bootNotice" role="dialog" aria-modal="true" aria-labelledby="bootNoticeTitle" tabindex="-1">
-        <div class="boot-notice-card">
-          <span class="stencil">필수 작동 한계 · 1/1</span>
-          <h1 id="bootNoticeTitle">이 장치는 구조 요청 수단이 아닙니다</h1>
-          <p>OGTECH Kit는 조난 예방과 자력 탈출을 돕습니다. 휴대폰 또는 개인위치발신기 같은 별도 비상 통신 수단을 반드시 지참하세요.</p>
-          <p class="boot-note">GPS 미수신 시에는 마지막 확정 좌표와 경과 시간만 표시하며, 위치를 추정하지 않습니다.</p>
-          <div class="boot-diagnostics" aria-live="polite">
-            <span class="stencil" id="bootDiagnosticSummary">부팅 자가진단 · 확인 중</span>
-            <ul id="bootChecks">
-              <li data-check="map" data-state="waiting"><span>지도</span><strong>확인 중</strong><small>검사 대기</small></li>
-              <li data-check="poi" data-state="waiting"><span>POI</span><strong>확인 중</strong><small>검사 대기</small></li>
-              <li data-check="clock" data-state="waiting"><span>RTC</span><strong>대기</strong><small>STM32 연동 대기</small></li>
-              <li data-check="gps" data-state="waiting"><span>GPS</span><strong>대기</strong><small>fix 대기</small></li>
-              <li data-check="sensors" data-state="waiting"><span>센서</span><strong>대기</strong><small>STM32 계측 대기</small></li>
-              <li data-check="audio" data-state="waiting"><span>음성 파일</span><strong>확인 중</strong><small>검사 대기</small></li>
-            </ul>
-          </div>
-          <button type="button" id="bootAcknowledge" disabled>
-            <span id="bootCountdown">5초 동안 내용을 확인하세요</span>
-          </button>
-        </div>
-      </section>
-
     </div>
 
     <!-- konkuk_walk.graphml 을 미리 변환해 구운 실제 보행망. build_map_data.py 가 만듭니다 -->

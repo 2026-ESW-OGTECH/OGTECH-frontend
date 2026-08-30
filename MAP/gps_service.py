@@ -30,6 +30,9 @@ STM32_POWER_COMMANDS = {
     "cancel": b"POWER OFF CANCEL\n",
 }
 _CRC_SUFFIX = re.compile(r'^(.*),"crc16":"([0-9A-Fa-f]{4})"}$')
+# CSV 텔레메트리 접두어: OGTECH-embedded uart4_integration `$OGT1`, 현재 실장 펌웨어 `$SA1`(필드 동일).
+OGT1_PREFIXES = ("$OGT1,", "$SA1,")
+_OGT1_INT = re.compile(r"-?[0-9]{1,10}")
 
 
 class GpsInputError(ValueError):
@@ -370,6 +373,7 @@ def parse_stm32_telemetry(line: str) -> dict[str, Any] | None:
     uptime_ms = int(_number(payload.get("uptime_ms"), "STM32 가동 시간", lower=0))
     return {
         "version": version,
+        "protocol": "v1",
         "sequence": sequence,
         "uptime_ms": uptime_ms,
         "gps": _parse_telemetry_gps(payload.get("gps")),
@@ -377,6 +381,122 @@ def parse_stm32_telemetry(line: str) -> dict[str, Any] | None:
         "environment": _parse_telemetry_environment(payload.get("env")),
         "co": _parse_telemetry_co(payload.get("co")),
         "power": _parse_telemetry_power(payload.get("power")),
+    }
+
+
+def _ogt1_int(
+    value: str,
+    label: str,
+    *,
+    lower: int | None = None,
+    upper: int | None = None,
+) -> int:
+    if not _OGT1_INT.fullmatch(value):
+        raise GpsInputError(f"{label} 값이 정수가 아닙니다")
+    number = int(value)
+    if lower is not None and number < lower:
+        raise GpsInputError(f"{label} 값이 허용 범위보다 작습니다")
+    if upper is not None and number > upper:
+        raise GpsInputError(f"{label} 값이 허용 범위보다 큽니다")
+    return number
+
+
+def parse_stm32_ogt1(line: str) -> dict[str, Any] | None:
+    """`$OGT1,…*XX` / `$SA1,…*XX` CSV 텔레메트리 한 줄을 v1 JSON과 같은 모양으로 정규화한다.
+
+    `$SA1,seq,uptime_ms,dht_valid,temp_x10,hum_x10,co_state,co_ppm,gps_state,lat_e7,lon_e7,sats*XX`
+    XX는 `$`와 `*` 사이 문자의 XOR(16진 2자리). co_state 0=WARMING_UP 1=VALID 2=STALE,
+    gps_state 0=NOT_FOUND 1=NO_FIX 2=FIX. CSV에는 RTC·기압·전원·CO 경보·정확도가 없으므로
+    해당 항목은 valid=False/None으로 두고 값을 만들어 내지 않는다.
+    접두어가 다르면 None(JSON v1 경로로 넘긴다).
+    """
+
+    sentence = line.strip()
+    if not sentence.startswith(OGT1_PREFIXES):
+        return None
+    if "*" not in sentence:
+        raise GpsInputError("STM32 OGT1 체크섬 구분자가 없습니다")
+    body, checksum_text = sentence[1:].rsplit("*", 1)
+    if len(checksum_text) != 2:
+        raise GpsInputError("STM32 OGT1 체크섬 길이가 잘못됐습니다")
+    try:
+        expected = int(checksum_text, 16)
+    except ValueError as exc:
+        raise GpsInputError("STM32 OGT1 체크섬이 16진수가 아닙니다") from exc
+    checksum = 0
+    for character in body:
+        checksum ^= ord(character)
+    if checksum != expected:
+        raise GpsInputError("STM32 OGT1 체크섬이 일치하지 않습니다")
+    fields = body.split(",")
+    if len(fields) != 12:
+        raise GpsInputError(f"STM32 OGT1 필드 수가 12가 아닙니다: {len(fields)}")
+
+    sequence = _ogt1_int(fields[1], "STM32 시퀀스", lower=0, upper=4_294_967_295)
+    uptime_ms = _ogt1_int(fields[2], "STM32 가동 시간", lower=0, upper=4_294_967_295)
+    dht_valid = _ogt1_int(fields[3], "STM32 dht_valid", lower=0, upper=1) == 1
+    temp_x10 = _ogt1_int(fields[4], "STM32 온도 x10")
+    hum_x10 = _ogt1_int(fields[5], "STM32 습도 x10")
+    co_state = _ogt1_int(fields[6], "STM32 co_state", lower=0, upper=2)
+    co_ppm = _ogt1_int(fields[7], "STM32 CO 농도")
+    gps_state = _ogt1_int(fields[8], "STM32 gps_state", lower=0, upper=2)
+    lat_e7 = _ogt1_int(fields[9], "STM32 위도 e7")
+    lon_e7 = _ogt1_int(fields[10], "STM32 경도 e7")
+    satellites = _ogt1_int(fields[11], "STM32 위성 수", lower=0, upper=99)
+
+    fix = gps_state == 2
+    gps: dict[str, Any] = {
+        "fix": fix,
+        "satellites": satellites,
+        "hdop": None,
+        "acc_m": None,
+        "age_s": None,
+        "last_age_s": None,
+        "accuracy_kind": "unknown",
+        "sentence": "STM32_OGT1",
+    }
+    if fix:  # NOT_FOUND/NO_FIX의 lat/lon 필드는 무시한다(좌표 아님)
+        gps["lat"] = _number(lat_e7 / 10_000_000, "STM32 위도", lower=-90, upper=90)
+        gps["lon"] = _number(lon_e7 / 10_000_000, "STM32 경도", lower=-180, upper=180)
+    environment: dict[str, Any] = {
+        "valid": dht_valid,
+        "sht_valid": dht_valid,
+        "pressure_valid": False,
+        "temp_c": None,
+        "humidity_pct": None,
+        "press_hpa": None,
+        "press_trend": "unknown",
+        "age_s": None,
+        "press_age_s": None,
+        "bmp_address": None,
+    }
+    if dht_valid:
+        environment["temp_c"] = _number(temp_x10 / 10, "STM32 온도", lower=-45, upper=130)
+        environment["humidity_pct"] = _number(hum_x10 / 10, "STM32 습도", lower=0, upper=100)
+    co_valid = co_state == 1
+    return {
+        "version": TELEMETRY_VERSION,  # _apply_telemetry가 요구 — OGT"1"/SA"1"의 판 번호
+        "protocol": "ogt1",
+        "sequence": sequence,
+        "uptime_ms": uptime_ms,
+        "gps": gps,
+        "rtc": {"valid": False, "iso_utc": None, "age_s": None},
+        "environment": environment,
+        "co": {
+            "valid": co_valid,
+            "warming_up": co_state == 0,
+            "ppm": _number(co_ppm, "STM32 CO 농도", lower=0, upper=10_000) if co_valid else None,
+            "level": "normal" if co_valid else "unknown",  # CSV에 경보·임계 정보 없음
+            "alarm": False,
+            "age_s": None,
+        },
+        "power": {
+            "valid": False,
+            "percent": None,
+            "days_left": None,
+            "jetson_gate_on": None,
+            "shutdown_pending": None,
+        },
     }
 
 
@@ -616,6 +736,7 @@ class GpsService:
             "rejected_lines": 0,
             "reported_last_age_s": None,
             "telemetry_version": None,
+            "telemetry_protocol": None,  # "v1"(JSONL+CRC16) · "ogt1"($OGT1/$SA1 CSV+XOR)
             "telemetry_sequence": None,
             "telemetry_uptime_ms": None,
             "sequence_gaps": 0,
@@ -1067,6 +1188,7 @@ class GpsService:
         ):
             self._state["sequence_gaps"] += 1
         self._state["telemetry_version"] = telemetry["version"]
+        self._state["telemetry_protocol"] = telemetry.get("protocol", "v1")
         self._state["telemetry_sequence"] = sequence
         self._state["telemetry_uptime_ms"] = uptime
         self._apply_fix(telemetry["gps"])
@@ -1098,7 +1220,12 @@ class GpsService:
         with self._lock:
             self._state["received_lines"] += 1
         try:
-            telemetry = parse_stm32_telemetry(line) if mode == "stm32" else None
+            telemetry = None
+            if mode == "stm32":
+                # 현재 실장 펌웨어의 `$SA1`/`$OGT1` CSV를 JSON v1보다 먼저 시도한다(접두어 불일치면 None).
+                telemetry = parse_stm32_ogt1(line)
+                if telemetry is None:
+                    telemetry = parse_stm32_telemetry(line)
             button = (
                 parse_stm32_button(line)
                 if mode == "stm32" and telemetry is None

@@ -4,10 +4,11 @@ After=local-fs.target
 
 [Service]
 Type=simple
-User=safeaid
-WorkingDirectory=/opt/ogtech/MAP
+User=kit
+SupplementaryGroups=dialout
+WorkingDirectory=/home/kit/ogtech/OGTECH-frontend/MAP
 EnvironmentFile=-/etc/ogtech/map.env
-ExecStart=/opt/ogtech/MAP/jetson/start-map.sh
+ExecStart=/home/kit/ogtech/OGTECH-frontend/MAP/jetson/start-map.sh
 Restart=on-failure
 RestartSec=2
 

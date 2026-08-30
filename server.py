@@ -151,6 +151,9 @@ class OgtechUiHandler(BaseHTTPRequestHandler):
                 length = int(self.headers.get("Content-Length", "0"))
             except ValueError:
                 length = 0
+            if length < 0:  # 음수면 rfile.read(-1)이 EOF까지 블록한다(WORKLOG #19)
+                self._send_json({"error": "Content-Length가 올바르지 않습니다."}, HTTPStatus.BAD_REQUEST)
+                return
             if length > MAX_REQUEST_BYTES:
                 self._send_json({"error": "요청 크기는 12MB를 넘을 수 없습니다."}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
                 return

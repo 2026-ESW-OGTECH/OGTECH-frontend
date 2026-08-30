@@ -25,7 +25,7 @@ const state = {
   voiceEventSource: null,
   lastVoiceSequence: 0,
   announcedArrival: null,
-  bootLocked: true,
+  bootLocked: false, // 2026-08-30 사용자 지시: 부팅 안내 모달 제거(#bootNotice 없음)
   bootDiagnosticOverall: "checking",
 };
 
@@ -666,6 +666,7 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     const notice = document.querySelector("#bootNotice");
     const button = document.querySelector("#bootAcknowledge");
+    if (!notice || !button) return;
     if (event.key === "Tab" && !button.disabled) button.focus();
     else notice.focus();
     return;
@@ -770,6 +771,7 @@ function connectVoiceEvents() {
 
 function setupBootNotice() {
   const notice = document.querySelector("#bootNotice");
+  if (!notice) return; // 모달이 없으면 잠금 없이 바로 시작
   const screen = document.querySelector("#screen");
   const button = document.querySelector("#bootAcknowledge");
   const label = document.querySelector("#bootCountdown");
@@ -816,6 +818,7 @@ function setupBootNotice() {
 
 async function loadBootDiagnostics() {
   const summary = document.querySelector("#bootDiagnosticSummary");
+  if (!summary) return;
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 3000);
   try {
