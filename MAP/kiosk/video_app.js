@@ -22,10 +22,16 @@ const SCENARIO_CO = Object.freeze({ valid: true, ppm: 0, level: "normal", alarm:
 
 // URL 파라미터. live=1 → 온·습도·CO를 /api/device 실값으로, autoplay=1|loop → 로드 즉시 자동 재생.
 const PAGE_PARAMS = new URLSearchParams(window.location.search);
-const LIVE_SENSORS = PAGE_PARAMS.get("live") === "1";
-const AUTOPLAY_MODE = ["1", "loop"].includes(PAGE_PARAMS.get("autoplay") || "")
-  ? PAGE_PARAMS.get("autoplay")
-  : null;
+// 제품 화면(/product/)은 이 파일과 video.html·video_styles.css 를 그대로 쓰고 데이터만
+// STM32 실측으로 바꾼다. 화면 코드를 한 벌만 두어야 두 화면 디자인이 어긋나지 않는다.
+// 차이는 딱 두 가지다 — 좌표·경로가 실측인지, 촬영용 시나리오 기능이 붙는지.
+const LIVE_MODE = window.location.pathname.startsWith("/product");
+const LIVE_SENSORS = LIVE_MODE || PAGE_PARAMS.get("live") === "1";
+const AUTOPLAY_MODE = LIVE_MODE
+  ? null
+  : ["1", "loop"].includes(PAGE_PARAMS.get("autoplay") || "")
+    ? PAGE_PARAMS.get("autoplay")
+    : null;
 // 이 시간 동안 /api/device 갱신이 없으면 실값 대신 "—"를 보여 준다(꾸며낸 값 금지).
 const LIVE_STALE_AFTER_MS = 10000;
 const LIVE_POLL_INTERVAL_MS = 2000;
@@ -141,6 +147,29 @@ const state = {
   live: { enabled: LIVE_SENSORS, connected: false, updatedAt: 0, updates: 0 },
   routeDeviationDemo: false,
 };
+
+// live 모드 전용. 시나리오 모드에서는 끝까지 비어 있다.
+const live = {
+  device: null,
+  fix: null,           // {lon, lat} · fix 없으면 null
+  target: null,        // 선택된 목적지/베이스캠프 좌표
+  targetKind: null,    // "destination" | "basecamp"
+  route: null,         // [[lon, lat], ...]
+  routeInfo: null,     // {bearing_deg, distance_m, eta_min}
+  basecamp: null,
+  sun: null,
+  alertText: null,
+  arrivalText: null,
+  selecting: false,
+  lastVoiceSequence: 0,
+};
+
+function livePoint(waypoint) {
+  if (!waypoint) return null;
+  const lat = Number(waypoint.lat);
+  const lon = Number(waypoint.lon);
+  return Number.isFinite(lat) && Number.isFinite(lon) ? { lon, lat } : null;
+}
 
 const walk = {
   playing: false,
@@ -366,6 +395,7 @@ function routeOffsetMeters(point, coordinates) {
 }
 
 function activeRoute() {
+  if (LIVE_MODE) return live.route;
   return state.scene.route ? state.map[state.scene.route] || null : null;
 }
 
@@ -539,7 +569,14 @@ function drawNorthArrow(projector) {
 }
 
 function basePoint() {
+  if (LIVE_MODE) return live.fix;
   return walk.position || state.map[state.scene.current];
+}
+
+// 화면에 그릴 목적지. 시나리오는 지도 상수, live 는 저장된 웨이포인트다.
+function targetPoint() {
+  if (LIVE_MODE) return live.target;
+  return state.scene.target ? state.map[state.scene.target] : null;
 }
 
 // D 키 시연 중에는 현재 위치를 가장 가까운 경로 선분의 직각 방향으로 밀어낸다.
@@ -584,8 +621,9 @@ function draw() {
   state.map.trails.forEach((trail) => strokePath(trail, projector));
   context.stroke();
 
-  if (state.scene.route) {
-    const route = state.map[state.scene.route];
+  const drawnRoute = activeRoute();
+  if (drawnRoute) {
+    const route = drawnRoute;
     context.lineCap = "round";
     context.strokeStyle = cssVar("--map-bg");
     context.lineWidth = 11;
@@ -608,20 +646,29 @@ function draw() {
   });
 
   drawNorthArrow(projector);
-  drawMarker(state.map.basecamp, "BASE CAMP", cssVar("--amber"), projector, "triangle");
-  const sceneTarget = state.scene.target ? state.map[state.scene.target] : null;
-  if (sceneTarget && state.scene.target !== "basecamp") {
-    const targetLabel = "목적지";
-    drawMarker(sceneTarget, targetLabel, cssVar("--cyan"), projector, "square");
+  const basecamp = LIVE_MODE ? live.basecamp : state.map.basecamp;
+  if (basecamp) drawMarker(basecamp, "BASE CAMP", cssVar("--amber"), projector, "triangle");
+
+  const goal = targetPoint();
+  if (LIVE_MODE) {
+    if (goal && live.targetKind !== "basecamp") {
+      drawMarker(goal, "목적지", cssVar("--cyan"), projector, "square");
+    }
+  } else if (goal && state.scene.target !== "basecamp") {
+    drawMarker(goal, "목적지", cssVar("--cyan"), projector, "square");
   } else if (state.sceneKey >= 2) {
     drawMarker(state.map.destination, "목적지", cssVar("--cyan"), projector, "square");
   }
+
   if (state.checkpoint) {
     drawMarker(state.checkpoint, "체크포인트", cssVar("--cyan"), projector, "square");
   }
   const current = currentPoint();
-  drawAccuracyRing(current, projector);
-  drawMarker(current, "현재", cssVar("--amber"), projector, "circle");
+  // fix 가 없으면 현재 위치 마커를 그리지 않는다. 마지막 좌표를 현재인 척하지 않는다.
+  if (current) {
+    drawAccuracyRing(current, projector);
+    drawMarker(current, "현재", cssVar("--amber"), projector, "circle");
+  }
   updateScaleBar(projector);
 }
 
@@ -708,7 +755,54 @@ function applyLiveDevice(device) {
   state.live.connected = true;
   state.live.updatedAt = performance.now();
   state.live.updates += 1;
+  if (LIVE_MODE) applyLiveNavigation(device);
   render();
+}
+
+/* /api/device 의 좌표·경로·일조·도착 판정을 화면 상태로 옮긴다.
+ * 값을 만들어 내지 않는다 — 서버가 주지 않으면 null 로 두고 화면이 "없음"을 보여 준다. */
+function applyLiveNavigation(device) {
+  live.device = device;
+
+  const gps = device.gps || {};
+  live.fix = gps.fix === true && Number.isFinite(Number(gps.lat)) && Number.isFinite(Number(gps.lon))
+    ? { lon: Number(gps.lon), lat: Number(gps.lat) }
+    : null;
+
+  const navigation = device.navigation || {};
+  const route = navigation.active_route || {};
+  const usable = route.available === true
+    && Array.isArray(route.coordinates)
+    && route.coordinates.length > 1;
+  live.route = usable ? route.coordinates : null;
+  live.routeInfo = route.available === true ? route : null;
+
+  const waypoints = device.waypoints || {};
+  live.basecamp = livePoint(waypoints.basecamp);
+  live.targetKind = navigation.selected_target || null;
+  live.target = live.targetKind === "basecamp"
+    ? live.basecamp
+    : livePoint(waypoints.destination);
+
+  const checkpoints = waypoints.checkpoints || [];
+  state.checkpoint = checkpoints.length
+    ? livePoint(checkpoints[checkpoints.length - 1])
+    : null;
+
+  live.sun = device.sun || null;
+
+  const alert = device.alert;
+  live.alertText = alert
+    ? (alert.message || daylightWarningText())
+    : null;
+
+  const arrival = navigation.arrival || {};
+  live.arrivalText = arrival.arrived === true
+    ? `${(arrival.target && arrival.target.name) || "목적지"}에 도착하였습니다.`
+    : null;
+
+  const night = device.interface && device.interface.night;
+  if (typeof night === "boolean" && night !== state.night) setNight(night, false);
 }
 
 function markLiveDisconnected() {
@@ -716,6 +810,14 @@ function markLiveDisconnected() {
   state.live.connected = false;
   state.environment = { temperatureC: NaN, humidityPct: NaN };
   state.co = { valid: false, ppm: NaN, level: "unknown", alarm: false, warmingUp: false };
+  if (LIVE_MODE) {
+    // 끊긴 뒤에도 마지막 좌표를 현재 위치인 척 남겨 두지 않는다.
+    live.fix = null;
+    live.route = null;
+    live.routeInfo = null;
+    live.alertText = null;
+    live.arrivalText = null;
+  }
   render();
 }
 
@@ -754,7 +856,7 @@ function connectLiveSensors() {
 }
 
 function setRouteAlert(current) {
-  const deviation = routeDeviation(current);
+  const deviation = current ? routeDeviation(current) : null;
   const routeAlert = document.querySelector("#routeAlert");
   if (deviation && deviation.offRoute) {
     document.querySelector("#routeAlertText").textContent =
@@ -885,7 +987,34 @@ function todayDaylight(now) {
 }
 
 function daylightForDisplay() {
+  if (LIVE_MODE) return liveDaylight();
   return state.daylightAlertSnapshot || todayDaylight();
+}
+
+/* live 모드의 일출몰은 서버 solar_service 가 실제 좌표로 계산한 값을 쓴다.
+ * 클라이언트 천문 계산과 결과가 갈리지 않도록 화면은 서버 값만 읽는다. */
+function liveDaylight() {
+  const sun = live.sun;
+  if (!sun || sun.computed !== true || !Number.isFinite(Number(sun.remaining_min))) {
+    return { remainingMinutes: null, pastSunset: false, sunset: null };
+  }
+  const remaining = Number(sun.remaining_min);
+  return {
+    remainingMinutes: Math.abs(remaining),
+    pastSunset: remaining < 0,
+    sunset: sun.sunset ? new Date(sun.sunset) : null,
+  };
+}
+
+/* 화면 위 경고 배너 문구. 시나리오는 장면이, live 는 서버 판정이 정한다. */
+function currentAlertText() {
+  if (LIVE_MODE) return live.alertText;
+  return state.scene.alert ? daylightWarningText() : null;
+}
+
+function currentArrivalText() {
+  if (LIVE_MODE) return live.arrivalText;
+  return state.scene.arrival || null;
 }
 
 function daylightWarningText() {
@@ -905,6 +1034,7 @@ function formatDaylightRemaining(minutes) {
 }
 
 function formatDaylightStatus(daylight) {
+  if (daylight.remainingMinutes === null) return "계산 대기";
   if (daylight.pastSunset) return `${daylight.remainingMinutes}분 초과`;
   return formatDaylightRemaining(daylight.remainingMinutes);
 }
@@ -914,10 +1044,19 @@ function formatCoordinate(value) {
 }
 
 function setCurrentCoordinateGlance(current) {
-  document.querySelector("#currentLatitude").textContent =
-    `${formatCoordinate(current.lat)} N`;
-  document.querySelector("#currentLongitude").textContent =
-    `${formatCoordinate(current.lon)} E`;
+  const glance = document.querySelector("#glanceCoordinate");
+  const latitude = document.querySelector("#currentLatitude");
+  const longitude = document.querySelector("#currentLongitude");
+  if (!current) {
+    // GPS 미수신을 추정 좌표로 덮지 않는다(안전 경계).
+    glance.dataset.state = "none";
+    latitude.textContent = "좌표 없음";
+    longitude.textContent = "GPS 미수신";
+    return;
+  }
+  glance.dataset.state = "caution";
+  latitude.textContent = `${formatCoordinate(current.lat)} N`;
+  longitude.textContent = `${formatCoordinate(current.lon)} E`;
 }
 
 function setDaylightGlance(scene) {
@@ -925,13 +1064,13 @@ function setDaylightGlance(scene) {
   const value = document.querySelector("#daylightValue");
   const sub = document.querySelector("#daylightSub");
   const daylight = daylightForDisplay();
-  element.dataset.state = scene.alert ? "warn" : "normal";
+  element.dataset.state = currentAlertText() ? "warn" : "normal";
   value.classList.remove("sun-times");
   value.textContent = formatDaylightStatus(daylight);
   sub.hidden = false;
   sub.textContent = daylight.sunset
     ? `금일 일몰 ${etaTimeFormatter.format(daylight.sunset)}`
-    : "금일 일몰 계산 불가";
+    : LIVE_MODE ? "GPS 위치 필요" : "금일 일몰 계산 불가";
 }
 
 function showToast(message, duration) {
@@ -1002,25 +1141,29 @@ function render() {
   setCoGlance(state.co);
   setRouteAlert(current);
 
+  const alertText = currentAlertText();
   const alertBox = document.querySelector("#alert");
-  if (scene.alert) {
-    document.querySelector("#alertText").textContent = daylightWarningText();
+  if (alertText) {
+    document.querySelector("#alertText").textContent = alertText;
     alertBox.hidden = false;
   } else {
     alertBox.hidden = true;
   }
-  document.querySelector("#mapPanel").classList.toggle("has-alert", Boolean(scene.alert));
+  document.querySelector("#mapPanel").classList.toggle("has-alert", Boolean(alertText));
   const arrivalCard = document.querySelector("#arrivalCard");
-  if (scene.arrival) {
-    document.querySelector("#arrivalText").textContent = scene.arrival;
+  const arrivalText = currentArrivalText();
+  if (arrivalText) {
+    document.querySelector("#arrivalText").textContent = arrivalText;
     arrivalCard.hidden = false;
   } else {
     arrivalCard.hidden = true;
   }
 
-  const target = scene.target ? state.map[scene.target] : null;
+  const target = targetPoint();
   const readout = document.querySelector("#readout");
-  if (!target) {
+  if (LIVE_MODE) {
+    renderLiveReadout(readout, current);
+  } else if (!target) {
     readout.hidden = true;
   } else {
     readout.hidden = false;
@@ -1044,9 +1187,34 @@ function render() {
   }
 
   document.querySelector("#mapAttribution").textContent = state.map.attribution;
-  document.querySelector("#directorKey").textContent = String(state.sceneKey);
-  document.querySelector("#directorScene").textContent = scene.title;
+  if (!LIVE_MODE) {
+    document.querySelector("#directorKey").textContent = String(state.sceneKey);
+    document.querySelector("#directorScene").textContent = scene.title;
+  }
   draw();
+}
+
+/* live 판독 카드. 방위·거리·예상 도착은 전부 map_engine 이 계산한 값이고
+ * 화면은 그대로 읽어 준다(LLM 이 만든 값이 아니다). */
+function renderLiveReadout(readout, current) {
+  const info = live.routeInfo;
+  if (!info || !current) {
+    readout.hidden = true;
+    return;
+  }
+  readout.hidden = false;
+  document.querySelector("#readoutLabel").textContent =
+    live.targetKind === "basecamp" ? "BASE CAMP" : "목적지";
+  document.querySelector("#readoutBearing").textContent =
+    `${String(Math.round(Number(info.bearing_deg) || 0)).padStart(3, "0")}°`;
+  const distance = Math.round(Number(info.distance_m) || 0);
+  document.querySelector("#readoutDistance").textContent = `${distance} m`;
+  const minutes = Number.isFinite(Number(info.eta_min))
+    ? Math.max(1, Math.ceil(Number(info.eta_min)))
+    : Math.max(1, Math.ceil(distance / walk.speedMps / 60));
+  document.querySelector("#readoutEta").textContent =
+    `예상 도착 ${etaTimeFormatter.format(new Date(Date.now() + minutes * 60000))} KST`;
+  document.querySelector("#readoutRemainingTime").textContent = `약 ${minutes}분 남음`;
 }
 
 function walkFrame(timestamp) {
@@ -1178,7 +1346,28 @@ function setDestinationSelection(on) {
   canvas.classList.toggle("destination-selecting", on);
 }
 
+async function selectLiveDestination(event) {
+  if (!live.selecting) return;
+  const rect = canvas.getBoundingClientRect();
+  const point = projection().fromScreen(event.clientX - rect.left, event.clientY - rect.top);
+  try {
+    await postWaypoint({
+      action: "set", kind: "destination", lat: point.lat, lon: point.lon,
+    });
+    showToast("목적지를 지정했습니다.", 2400);
+  } catch (error) {
+    showToast(error.message, 2600);
+  }
+  live.selecting = false;
+  setDestinationSelection(false);
+  render();
+}
+
 function selectMapDestination(event) {
+  if (LIVE_MODE) {
+    selectLiveDestination(event);
+    return;
+  }
   cancelAutoDemo();
   if (!state.destinationSelecting) return;
   state.routeDeviationDemo = false;
@@ -1318,15 +1507,95 @@ function handleBasecampButton() {
   showBasecampRoute();
 }
 
+/* live 모드 조작. 저장·경로 선택은 전부 서버가 판정하고 화면은 결과만 받는다. */
+async function postWaypoint(payload) {
+  const response = await fetch("/api/waypoints", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "저장 지점 요청 실패");
+  applyLiveDevice(result);
+  return result;
+}
+
+async function postVoiceCommand(action) {
+  const response = await fetch("/api/voice/commands", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+    cache: "no-store",
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "음성 지도 명령 실패");
+  applyVoiceEvent(result);
+  return result;
+}
+
+function applyVoiceEvent(payload) {
+  if (!payload || typeof payload !== "object") return;
+  if (payload.device) applyLiveDevice(payload.device);
+  if (Number.isFinite(payload.sequence)) {
+    live.lastVoiceSequence = Math.max(live.lastVoiceSequence, payload.sequence);
+  }
+  if (payload.message) showToast(payload.message, 3800);
+  render();
+}
+
+function connectVoiceEvents() {
+  if (!LIVE_MODE || !("EventSource" in window)) return;
+  const source = new EventSource("/api/voice/events");
+  source.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      if (Number.isFinite(payload.sequence) && payload.sequence <= live.lastVoiceSequence) return;
+      applyVoiceEvent(payload);
+    } catch (error) {
+      showToast("음성 지도 명령을 화면에 반영하지 못했습니다.", 2600);
+    }
+  };
+}
+
 document.querySelector("#btnDestination").addEventListener("click", () => {
+  if (LIVE_MODE) {
+    live.selecting = !live.selecting;
+    setDestinationSelection(live.selecting);
+    showToast(live.selecting ? "지도에서 목적지를 터치하세요." : "목적지 지정을 취소했습니다.", 2400);
+    return;
+  }
   cancelAutoDemo();
   setDestinationSelection(!state.destinationSelecting);
 });
-document.querySelector("#btnCheckpoint").addEventListener("click", () => {
+document.querySelector("#btnCheckpoint").addEventListener("click", async () => {
+  if (LIVE_MODE) {
+    try {
+      await postWaypoint({ action: "save_current", kind: "checkpoint" });
+      showToast("현재 위치를 체크포인트로 저장했습니다.", 2400);
+    } catch (error) {
+      showToast(error.message, 2600);
+    }
+    return;
+  }
   cancelAutoDemo();
   saveCheckpoint();
 });
-document.querySelector("#btnBasecamp").addEventListener("click", () => {
+document.querySelector("#btnBasecamp").addEventListener("click", async () => {
+  if (LIVE_MODE) {
+    try {
+      if (live.basecamp) {
+        await postWaypoint({ action: "select", id: "basecamp" });
+        showToast("베이스캠프 귀환 경로를 불러왔습니다.", 2800);
+      } else {
+        await postWaypoint({ action: "save_current", kind: "basecamp" });
+        showToast("현재 위치를 베이스캠프로 저장했습니다.", 2800);
+      }
+    } catch (error) {
+      showToast(error.message, 2600);
+    }
+    return;
+  }
   cancelAutoDemo();
   handleBasecampButton();
 });
@@ -1336,7 +1605,8 @@ document.querySelector("#btnNight").addEventListener("click", () => {
 });
 canvas.addEventListener("click", selectMapDestination);
 
-window.addEventListener("keydown", (event) => {
+// 아래 키 조작과 디렉터 패널은 촬영 전용이다. 제품 화면에는 달지 않는다.
+if (!LIVE_MODE) window.addEventListener("keydown", (event) => {
   if (event.key === "a" || event.key === "A") {
     event.preventDefault();
     startAutoDemo();
@@ -1401,7 +1671,15 @@ async function startAutoplay() {
 
 window.addEventListener("resize", draw);
 setNight(false);
-setScene(1, { audio: false });
+if (LIVE_MODE) {
+  // 촬영 시나리오를 쓰지 않는다. 그림틀만 같고 값은 전부 /api/device 에서 온다.
+  document.querySelector("#director").hidden = true;
+  state.scene = { ...SCENES[1], current: null, target: null, route: null, alert: null, arrival: null };
+  connectVoiceEvents();
+  render();
+} else {
+  setScene(1, { audio: false });
+}
 window.setInterval(() => {
   updateSeoulClock();
   setDaylightGlance(state.scene);

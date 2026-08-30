@@ -109,63 +109,41 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertEqual(stopped["mode"], "off")
         self.assertFalse(stopped["fix"])
 
-    def test_product_screen_and_waypoint_api_use_integrated_device_state(self) -> None:
-        deadline = time.monotonic() + 2.0
-        device: dict[str, object] = {}
-        while time.monotonic() < deadline:
-            status, device = self.request("GET", "/api/device")
-            gps = device.get("gps")
-            if isinstance(gps, dict) and gps.get("fix") is True:
-                break
-            time.sleep(0.02)
-        self.assertEqual(status, 200)
-        self.assertIn("environment", device)
-        self.assertIn("sun", device)
-        self.assertIn("navigation", device)
-        self.assertTrue(device["demo"])
+    def test_product_screen_shares_markup_with_filming_screen(self) -> None:
+        """제품 화면과 촬영 화면은 같은 마크업·CSS·그리기 코드를 쓴다.
 
-        status, saved = self.request(
-            "POST",
-            "/api/waypoints",
-            {"action": "save_current", "kind": "basecamp"},
-        )
-        self.assertEqual(status, 200)
-        self.assertEqual(saved["waypoints"]["selected_target"], "basecamp")
-        self.assertTrue(saved["contract"]["map_route_bearing_distance_computed_by_code"])
-        self.assertFalse(saved["contract"]["llm_may_generate_coordinates"])
+        2026-08-30 사용자 지시: 디자인은 예외 없이 같아야 한다. 화면 코드를 한 벌만
+        두어 둘이 갈라지지 않게 한다. 차이는 데이터뿐이다 — 제품 화면은 좌표·경로가
+        STM32 실측이고, 촬영 화면은 시나리오 고정값에 촬영용 기능이 붙는다.
+        """
+        product = self.fetch_text("/product/")
+        video = self.fetch_text("/video/")
+        self.assertEqual(product, video, "두 화면 마크업이 다릅니다")
 
-        connection = HTTPConnection("127.0.0.1", self.port, timeout=5.0)
-        try:
-            connection.request("GET", "/product/")
-            response = connection.getresponse()
-            html = response.read().decode("utf-8")
-        finally:
-            connection.close()
-        self.assertEqual(response.status, 200)
-        self.assertIn("ENVIRONMENT", html)
-        self.assertNotIn("demo-badge", html)
-        self.assertIn("live_app.js", html)
-        # 2026-08-30 사용자 지시: 부팅 안내 모달 제거 — 화면이 잠금 없이 바로 열려야 한다.
-        self.assertNotIn('id="bootNotice"', html)
-        self.assertNotIn("bootAcknowledge", html)
-        self.assertIn('id="positionDetails"', html)
-        self.assertIn('id="btnDestination"', html)
+        # 같은 계기 5칸·같은 지도·같은 조작 버튼을 쓴다.
+        for marker in (
+            'id="glanceLocation"', 'id="glanceSun"', 'id="glanceCoordinate"',
+            'id="glanceEnv"', 'id="glanceCo"',
+            'id="currentLatitude"', 'id="currentLongitude"',
+            'id="mapCanvas"', 'id="readout"', 'id="statusToast"',
+            "video_styles.css", "video_app.js", "video_map.js",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, product)
 
-        status, diagnostics = self.request("GET", "/api/diagnostics")
-        self.assertEqual(status, 200)
-        self.assertEqual(diagnostics["overall"], "demo")
-        checks = {item["id"]: item for item in diagnostics["checks"]}
-        self.assertEqual(checks["map"]["state"], "demo")
-        self.assertEqual(checks["poi"]["state"], "demo")
-        self.assertEqual(checks["clock"]["state"], "waiting")
-        self.assertIn("RTC 미연동", checks["clock"]["detail"])
-        self.assertEqual(checks["audio"]["state"], "pass")
-        self.assertIn("출력 미검사", checks["audio"]["detail"])
-        self.assertIn(checks["gps"]["state"], {"demo", "pass"})
-        self.assertFalse(diagnostics["contract"]["network_required"])
-        self.assertTrue(
-            diagnostics["contract"]["rtc_is_not_claimed_without_stm32_evidence"]
-        )
+        # 제품 화면 경로로도 같은 자산이 내려가야 한다.
+        for path in (
+            "/product/video_app.js", "/product/video_map.js",
+            "/product/video_styles.css", "/product/styles.css",
+        ):
+            with self.subTest(path=path):
+                self.fetch_text(path)
+
+        # 화면 코드가 경로로 모드를 가른다.
+        app = self.fetch_text("/product/video_app.js")
+        self.assertIn('window.location.pathname.startsWith("/product")', app)
+        # 제품 화면은 좌표를 꾸며내지 않는다.
+        self.assertIn('latitude.textContent = "좌표 없음"', app)
 
     def test_diagnostics_rejects_truncated_wav_header(self) -> None:
         invalid = Path(self.temporary.name) / "invalid.wav"
@@ -496,8 +474,7 @@ class GpsApiIntegrationTest(unittest.TestCase):
             "/product/",
             "/video/",
             "/app.js",
-            "/product/app.js",
-            "/product/live_app.js",
+            "/product/video_app.js",
             "/video/video_app.js",
             "/video/video_map.js",
             "/styles.css",
@@ -534,8 +511,7 @@ class GpsApiIntegrationTest(unittest.TestCase):
         served = (
             "/select/",
             "/product/",
-            "/product/live_app.js",
-            "/product/app.js",
+            "/product/video_app.js",
             "/video/",
             "/video/video_app.js",
         )

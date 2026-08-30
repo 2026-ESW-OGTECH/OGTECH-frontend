@@ -118,8 +118,8 @@ MAP/               ★ 오프라인 지도 엔진 (이 저장소의 핵심)
 ├─ tests/                    단위 · 회귀 테스트
 ├─ TEST_images/              위 화면 캡처 (1024×600 실제 해상도)
 └─ kiosk/                   ★ 키오스크 UI
-   ├─ index.html · live_app.js · styles.css                         실제 제품 화면(`/product/`)
-   ├─ video.html · video_app.js · video_map.js · video_styles.css   촬영 전용 합성 화면(`/video/`)
+   ├─ video.html · video_app.js · video_map.js · video_styles.css   제품(`/product/`)·촬영(`/video/`) 공용 화면
+   ├─ select.html · styles.css                                     화면 선택(`/select/`)과 공통 토큰
    ├─ *.wav                                                         사전 합성 안내 음성
    └─ poi_catalog.json · build_map_data.py                          지도 데이터 생성
 ```
@@ -134,8 +134,9 @@ cd MAP
 python app.py --gps-mode stm32 --gps-port /dev/ttyTHS0 --gps-baud 115200
 ```
 
-정본 제품 화면은 `http://127.0.0.1:8790/video/?live=1`(젯슨 키오스크 기본), 구 제품 화면은
-`/product/`, 지도 개발 도구는 `/`다.
+젯슨 키오스크는 `http://127.0.0.1:8790/select/`로 뜨고 거기서 제품 화면(`/product/`)과
+촬영 화면(`/video/?live=1`)을 고른다. 지도 개발 도구는 `/`다. 두 화면은 같은 마크업·CSS·
+그리기 코드를 쓰고 데이터 소스만 다르다.
 `server.py`는 MAP API(`/api/map`, `/api/gps/*`)를 구현하지 않으므로 개발자 지도 화면 실행에 쓰지 않는다.
 
 ## UI 규칙 — 7인치에서 px는 거짓말입니다
