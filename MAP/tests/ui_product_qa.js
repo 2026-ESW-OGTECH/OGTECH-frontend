@@ -17,8 +17,8 @@ function requireCondition(condition, message) {
 async function main() {
   fs.mkdirSync(outputDir, { recursive: true });
   const launchOptions = { headless: true };
-  if (process.env.SAFEAID_BROWSER_EXECUTABLE) {
-    launchOptions.executablePath = process.env.SAFEAID_BROWSER_EXECUTABLE;
+  if (process.env.OGTECH_BROWSER_EXECUTABLE) {
+    launchOptions.executablePath = process.env.OGTECH_BROWSER_EXECUTABLE;
   }
   const browser = await chromium.launch(launchOptions);
   const page = await browser.newPage({ viewport: { width: 1024, height: 600 } });

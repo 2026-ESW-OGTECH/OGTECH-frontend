@@ -5,7 +5,7 @@
 ``map_engine.find_route``가 GraphML 위에서 계산한다. LLM은 좌표·방위·거리·경로를 만들지 않는다.
 
     cd OGTECH-frontend/MAP
-    .venv/Scripts/python.exe 시연용/build_video_map_data.py
+    .venv/Scripts/python.exe kiosk/build_video_map_data.py
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ sys.path.insert(0, str(MAP_DIR))
 from map_engine import OfflineMap  # noqa: E402
 
 SOURCE = MAP_DIR / "sample_data" / "konkuk_walk.graphml"
-OUTPUT = MAP_DIR / "시연용" / "video_map.js"
+OUTPUT = MAP_DIR / "kiosk" / "video_map.js"
 
 CANVAS_ASPECT = 1024 / 420
 CROP_MARGIN_M = 38.0
@@ -214,7 +214,7 @@ def main() -> int:
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     OUTPUT.write_text(
         "/* 자동 생성 파일 — 직접 고치지 마세요.\n"
-        " * 만든 명령: .venv/Scripts/python.exe 시연용/build_video_map_data.py\n"
+        " * 만든 명령: .venv/Scripts/python.exe kiosk/build_video_map_data.py\n"
         f" * 보행망: sample_data/{SOURCE.name}\n"
         " * POI 외곽: OpenStreetMap relation/7885627, way/369210727 (ODbL 1.0)\n"
         " * 경로·거리·방위는 코드가 계산하며 LLM이 만든 값이 아닙니다. */\n"

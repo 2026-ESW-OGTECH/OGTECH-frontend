@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""SafeAid 키오스크 UI 정적 서버와 선택적 로컬 API 프록시.
+"""OGTECH 키오스크 UI 정적 서버와 선택적 로컬 API 프록시.
 
 외부 패키지 없이 동작한다. UI 서버는 모델을 직접 적재하지 않으며,
-`/backend/*` 요청만 지정된 SafeAid 백엔드로 전달한다.
+`/backend/*` 요청만 지정된 OGTECH 백엔드로 전달한다.
 
-기본 문서 루트는 `MAP/시연용`이고 기본 문서는 `video.html`이다.
+기본 문서 루트는 `MAP/kiosk`이고 기본 문서는 `video.html`이다.
 구 의료 도메인 TEST UI는 2026-08-20에 저장소에서 제거했다.
 """
 
@@ -27,7 +27,7 @@ from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parent
-UI_ROOT = ROOT / "MAP" / "시연용"
+UI_ROOT = ROOT / "MAP" / "kiosk"
 INDEX_DOCUMENT = "video.html"
 MAX_REQUEST_BYTES = 12 * 1024 * 1024
 HOP_BY_HOP_HEADERS = {
@@ -53,17 +53,17 @@ class ServerConfig:
     index_document: str = INDEX_DOCUMENT
 
 
-class SafeAidUiServer(ThreadingHTTPServer):
+class OgtechUiServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
     def __init__(self, address: tuple[str, int], config: ServerConfig) -> None:
-        super().__init__(address, SafeAidUiHandler)
+        super().__init__(address, OgtechUiHandler)
         self.config = config
 
 
-class SafeAidUiHandler(BaseHTTPRequestHandler):
-    server_version = "SafeAidKioskUI/1.0"
+class OgtechUiHandler(BaseHTTPRequestHandler):
+    server_version = "OgtechKioskUI/1.0"
     protocol_version = "HTTP/1.1"
     _head_only = False
 
@@ -82,7 +82,7 @@ class SafeAidUiHandler(BaseHTTPRequestHandler):
     def _handle_get(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/health":
-            self._send_json({"ok": True, "service": "safeaid-kiosk-ui"})
+            self._send_json({"ok": True, "service": "ogtech-kiosk-ui"})
             return
         if parsed.path == "/ui-api/status":
             self._send_json(self._status_payload())
@@ -178,7 +178,7 @@ class SafeAidUiHandler(BaseHTTPRequestHandler):
             self._send_bytes(payload, error.code, content_type)
         except (URLError, TimeoutError, OSError):
             self._send_json(
-                {"error": "SafeAid 백엔드에 연결할 수 없습니다."},
+                {"error": "OGTECH 백엔드에 연결할 수 없습니다."},
                 HTTPStatus.BAD_GATEWAY,
             )
 
@@ -248,7 +248,7 @@ def create_server(
     modem_endpoint: str = "",
     root: str | os.PathLike[str] | None = None,
     index_document: str = INDEX_DOCUMENT,
-) -> SafeAidUiServer:
+) -> OgtechUiServer:
     config = ServerConfig(
         root=Path(root).resolve() if root else UI_ROOT,
         index_document=index_document,
@@ -258,26 +258,26 @@ def create_server(
         gps_endpoint=gps_endpoint,
         modem_endpoint=modem_endpoint,
     )
-    return SafeAidUiServer((host, port), config)
+    return OgtechUiServer((host, port), config)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="SafeAid 키오스크 UI 경량 서버")
-    parser.add_argument("--host", default=os.getenv("SAFEAID_UI_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.getenv("SAFEAID_UI_PORT", "8780")))
-    parser.add_argument("--backend", default=os.getenv("SAFEAID_BACKEND_URL", "http://127.0.0.1:8765"))
-    parser.add_argument("--llm-health", default=os.getenv("SAFEAID_LLM_HEALTH_URL", "http://127.0.0.1:8080/health"))
-    parser.add_argument("--stt-endpoint", default=os.getenv("SAFEAID_STT_ENDPOINT", ""))
-    parser.add_argument("--gps-endpoint", default=os.getenv("SAFEAID_GPS_ENDPOINT", ""))
-    parser.add_argument("--modem-endpoint", default=os.getenv("SAFEAID_MODEM_ENDPOINT", ""))
+    parser = argparse.ArgumentParser(description="OGTECH 키오스크 UI 경량 서버")
+    parser.add_argument("--host", default=os.getenv("OGTECH_UI_HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.getenv("OGTECH_UI_PORT", "8780")))
+    parser.add_argument("--backend", default=os.getenv("OGTECH_BACKEND_URL", "http://127.0.0.1:8765"))
+    parser.add_argument("--llm-health", default=os.getenv("OGTECH_LLM_HEALTH_URL", "http://127.0.0.1:8080/health"))
+    parser.add_argument("--stt-endpoint", default=os.getenv("OGTECH_STT_ENDPOINT", ""))
+    parser.add_argument("--gps-endpoint", default=os.getenv("OGTECH_GPS_ENDPOINT", ""))
+    parser.add_argument("--modem-endpoint", default=os.getenv("OGTECH_MODEM_ENDPOINT", ""))
     parser.add_argument(
         "--root",
-        default=os.getenv("SAFEAID_UI_ROOT", ""),
-        help="정적 문서 루트. 비우면 MAP/시연용 을 쓴다.",
+        default=os.getenv("OGTECH_UI_ROOT", ""),
+        help="정적 문서 루트. 비우면 MAP/kiosk 을 쓴다.",
     )
     parser.add_argument(
         "--index",
-        default=os.getenv("SAFEAID_UI_INDEX", INDEX_DOCUMENT),
+        default=os.getenv("OGTECH_UI_INDEX", INDEX_DOCUMENT),
         help="기본 문서. 비우면 video.html 을 쓴다.",
     )
     return parser.parse_args()
@@ -297,7 +297,7 @@ def main() -> None:
         index_document=args.index or INDEX_DOCUMENT,
     )
     host, port = server.server_address[:2]
-    print(f"SafeAid 키오스크 UI: http://{host}:{port}")
+    print(f"OGTECH 키오스크 UI: http://{host}:{port}")
     print("종료: Ctrl+C")
     try:
         server.serve_forever(poll_interval=0.5)

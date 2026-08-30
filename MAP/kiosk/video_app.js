@@ -1,6 +1,9 @@
-/* SafeAid 건국대학교 시연 영상 전용 MAP — 1024x600
+/* OGTECH 건국대학교 시연 영상 전용 MAP — 1024x600
  *
- * 이 화면의 현재 위치·센서 값은 촬영용 합성값이다. 그래서 녹색 LIVE 상태를 쓰지 않는다.
+ * 기본 상태의 현재 위치·센서 값은 촬영용 합성값이다. 그래서 녹색 LIVE 상태를 쓰지 않는다.
+ * URL 파라미터 `?live=1`을 붙이면 온·습도·CO 칸만 app.py의 /api/device(STM32 텔레메트리)
+ * 실값으로 바뀌고 유효한 CO는 녹색 LIVE로 표시한다. 위치·경로는 여전히 시나리오다.
+ * `?autoplay=1`(1회) 또는 `?autoplay=loop`(반복)는 로드 직후 `A` 키와 같은 원테이크를 시작한다.
  * 공개 POI와 보행망은 오프라인 파일이며, 경로·방위·거리·경로 이탈 거리는 아래 코드와
  * map_engine이 계산한다. LLM은 좌표나 숫자를 생성하지 않는다.
  */
@@ -15,6 +18,19 @@ const ROUTE_DEVIATION_THRESHOLD_M = 30;
 const ROUTE_DEVIATION_DEMO_OFFSET_M = 45;
 // 촬영 시나리오 고정 환경값. 기온 색: 30°C 초과 적색, 20~30°C 황색, 20°C 이하 녹색.
 const SCENARIO_ENVIRONMENT = Object.freeze({ temperatureC: 30.0, humidityPct: 55 });
+const SCENARIO_CO = Object.freeze({ valid: true, ppm: 0, level: "normal", alarm: false, warmingUp: false });
+
+// URL 파라미터. live=1 → 온·습도·CO를 /api/device 실값으로, autoplay=1|loop → 로드 즉시 자동 재생.
+const PAGE_PARAMS = new URLSearchParams(window.location.search);
+const LIVE_SENSORS = PAGE_PARAMS.get("live") === "1";
+const AUTOPLAY_MODE = ["1", "loop"].includes(PAGE_PARAMS.get("autoplay") || "")
+  ? PAGE_PARAMS.get("autoplay")
+  : null;
+// 이 시간 동안 /api/device 갱신이 없으면 실값 대신 "—"를 보여 준다(꾸며낸 값 금지).
+const LIVE_STALE_AFTER_MS = 10000;
+const LIVE_POLL_INTERVAL_MS = 2000;
+const AUTOPLAY_START_DELAY_MS = 800;
+const AUTOPLAY_LOOP_PAUSE_MS = 5000;
 
 const FALLBACK_MAP = {
   name: "건국대학교 · 공학관 ↔ 일감호",
@@ -121,6 +137,8 @@ const state = {
   destinationSelecting: false,
   daylightAlertSnapshot: null,
   environment: { ...SCENARIO_ENVIRONMENT },
+  co: { ...SCENARIO_CO },
+  live: { enabled: LIVE_SENSORS, connected: false, updatedAt: 0, updates: 0 },
   routeDeviationDemo: false,
 };
 
@@ -651,6 +669,90 @@ function setEnvironmentGlance(environment) {
     : "— RH";
 }
 
+// CO 칸 색: 시나리오 값은 앰버(합성값), 실값은 normal 녹색 / warning 앰버 / alarm 적색 / 없음 회색.
+function coGlanceState(co) {
+  if (!state.live.enabled) return "caution";
+  if (co.alarm || co.level === "alarm") return "warn";
+  if (co.level === "warning") return "caution";
+  if (co.valid) return "live";
+  return "none";
+}
+
+function setCoGlance(co) {
+  const text = co.valid && Number.isFinite(co.ppm)
+    ? `${Math.round(co.ppm)} ppm`
+    : co.warmingUp
+      ? "예열 중"
+      : "—";
+  setGlance("#glanceCo", coGlanceState(co), text);
+}
+
+// /api/device 스냅샷에서 온·습도·CO만 가져온다. stale/invalid 값은 숫자로 만들지 않는다.
+function applyLiveDevice(device) {
+  if (!device || typeof device !== "object") return;
+  const env = device.environment || {};
+  const co = device.co || {};
+  const envValid = env.valid === true && env.stale !== true;
+  const coValid = co.valid === true && co.stale !== true && Number.isFinite(Number(co.ppm));
+  state.environment = {
+    temperatureC: envValid && Number.isFinite(Number(env.temp_c)) ? Number(env.temp_c) : NaN,
+    humidityPct: envValid && Number.isFinite(Number(env.humidity_pct)) ? Number(env.humidity_pct) : NaN,
+  };
+  state.co = {
+    valid: coValid,
+    ppm: coValid ? Number(co.ppm) : NaN,
+    level: typeof co.level === "string" ? co.level : "unknown",
+    alarm: co.alarm === true,
+    warmingUp: co.warming_up === true,
+  };
+  state.live.connected = true;
+  state.live.updatedAt = performance.now();
+  state.live.updates += 1;
+  render();
+}
+
+function markLiveDisconnected() {
+  if (!state.live.connected) return;
+  state.live.connected = false;
+  state.environment = { temperatureC: NaN, humidityPct: NaN };
+  state.co = { valid: false, ppm: NaN, level: "unknown", alarm: false, warmingUp: false };
+  render();
+}
+
+// SSE(/api/device/events)를 주 경로로, 폴링을 stale 감시·복구 경로로 쓴다.
+function connectLiveSensors() {
+  if (!state.live.enabled) return;
+  const poll = async () => {
+    try {
+      const response = await fetch("/api/device", { cache: "no-store" });
+      if (!response.ok) throw new Error("장치 상태 요청 실패");
+      applyLiveDevice(await response.json());
+    } catch (error) {
+      // 서버가 아직 안 떴거나 끊긴 상태. 다음 주기에 다시 시도한다.
+    }
+  };
+  let eventSource = null;
+  if ("EventSource" in window) {
+    eventSource = new EventSource("/api/device/events");
+    eventSource.onmessage = (event) => {
+      try {
+        applyLiveDevice(JSON.parse(event.data));
+      } catch (error) {
+        // 깨진 이벤트는 버리고 폴링 경로가 복구한다.
+      }
+    };
+  }
+  state.environment = { temperatureC: NaN, humidityPct: NaN };
+  state.co = { valid: false, ppm: NaN, level: "unknown", alarm: false, warmingUp: false };
+  render();
+  poll();
+  window.setInterval(() => {
+    const stale = performance.now() - state.live.updatedAt > LIVE_STALE_AFTER_MS;
+    if (stale) markLiveDisconnected();
+    if (stale || !eventSource) poll();
+  }, LIVE_POLL_INTERVAL_MS);
+}
+
 function setRouteAlert(current) {
   const deviation = routeDeviation(current);
   const routeAlert = document.querySelector("#routeAlert");
@@ -897,7 +999,7 @@ function render() {
   updateSeoulClock();
   setCurrentCoordinateGlance(current);
   setEnvironmentGlance(state.environment);
-  setGlance("#glanceCo", "caution", "0 ppm");
+  setCoGlance(state.co);
   setRouteAlert(current);
 
   const alertBox = document.querySelector("#alert");
@@ -1276,7 +1378,7 @@ window.addEventListener("keydown", (event) => {
 });
 
 // 브라우저 QA(tests/ui_video_qa.js) 전용 훅. 제품 조작 경로가 아니다.
-window.safeaidVideoQa = Object.freeze({
+window.ogtechVideoQa = Object.freeze({
   temperatureLevel,
   routeOffsetMeters,
   routeDeviation: () => routeDeviation(currentPoint()),

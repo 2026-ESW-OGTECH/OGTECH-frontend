@@ -1,6 +1,6 @@
 # OGTECH-frontend — 키오스크 UI와 오프라인 지도 엔진
 
-**SafeAid Kit** (2026 임베디드 소프트웨어 경진대회 자유공모 / 팀 OGTECH) 의 프런트엔드 저장소입니다.
+**OGTECH Kit** (2026 임베디드 소프트웨어 경진대회 자유공모 / 팀 OGTECH) 의 프런트엔드 저장소입니다.
 [조직 개요](https://github.com/2026-ESW-OGTECH) · [다른 저장소 안내](https://github.com/2026-ESW-OGTECH/.github)
 
 ---
@@ -23,7 +23,7 @@ NetworkX로 복귀 경로를 계산합니다. 외부 라우팅 API 호출이 한
 
 ### 1. 베이스캠프 시작 — 상시 계기 스트립
 
-![베이스캠프 시작](MAP/TEST_images/01_베이스캠프_시작.png)
+![베이스캠프 시작](MAP/TEST_images/01_basecamp_start.png)
 
 화면을 켠 순간 1초 안에 읽혀야 하는 값을 상단에 고정합니다. 지도를 보기 전에 상태부터 보입니다.
 
@@ -40,7 +40,7 @@ NetworkX로 복귀 경로를 계산합니다. 외부 라우팅 API 호출이 한
 
 ### 2. 목적지 설정 — 방위·거리·도착 예정 시각
 
-![목적지 경로 안내](MAP/TEST_images/02_목적지_경로_안내.png)
+![목적지 경로 안내](MAP/TEST_images/02_destination_route.png)
 
 목적지를 지정하면 지도 엔진이 보행로 그래프 위에서 경로를 계산해 청록색 선으로 그립니다.
 
@@ -51,14 +51,14 @@ NetworkX로 복귀 경로를 계산합니다. 외부 라우팅 API 호출이 한
 
 ### 3. 목적지 도착
 
-![목적지 도착](MAP/TEST_images/03_목적지_도착.png)
+![목적지 도착](MAP/TEST_images/03_destination_arrived.png)
 
 도착 판정 시 안내 카드를 띄우고 사전 합성된 음성을 재생합니다.
 **화면은 2차 출력입니다.** 배낭에서 꺼내지 않아도 음성만으로 알 수 있어야 합니다.
 
 ### 4. 일조 시간 부족 경고 — 되돌아설 시점
 
-![일조시간 부족 경고](MAP/TEST_images/04_일조시간_부족_경고.png)
+![일조시간 부족 경고](MAP/TEST_images/04_daylight_warning.png)
 
 이 작품이 "묻기 전에 먼저 말한다"를 실행하는 지점입니다.
 
@@ -71,20 +71,20 @@ NetworkX로 복귀 경로를 계산합니다. 외부 라우팅 API 호출이 한
 
 ### 5. 베이스캠프 복귀 경로
 
-![베이스캠프 복귀 경로](MAP/TEST_images/05_베이스캠프_복귀_경로.png)
+![베이스캠프 복귀 경로](MAP/TEST_images/05_basecamp_return_route.png)
 
 복귀를 시작하면 목적지가 BASE CAMP로 바뀌고, 같은 지도 엔진이 역방향 경로를 다시 계산합니다.
 현재 위치는 실제 이동에 따라 갱신되며, 방위·거리·도착 예정 시각도 함께 따라갑니다.
 
 ### 6. 베이스캠프 도착
 
-![베이스캠프 도착](MAP/TEST_images/06_베이스캠프_도착.png)
+![베이스캠프 도착](MAP/TEST_images/06_basecamp_arrived.png)
 
 복귀 완료를 안내 카드와 음성으로 알립니다. 시연 시나리오의 마지막 장면입니다.
 
 ### 7. 체크포인트 저장 — 위치 로그 역추적
 
-![체크포인트 저장](MAP/TEST_images/07_체크포인트_저장.png)
+![체크포인트 저장](MAP/TEST_images/07_checkpoint_saved.png)
 
 물리 버튼 한 번으로 현재 지점을 체크포인트로 기록합니다(청록 사각형).
 `position_history`가 이동 경로를 자동으로 쌓아 두고, 되돌아갈 때
@@ -94,7 +94,7 @@ NetworkX로 복귀 경로를 계산합니다. 외부 라우팅 API 호출이 한
 
 ### 8. 야간 모드 — 적색 단색
 
-![야간 모드](MAP/TEST_images/08_야간_모드.png)
+![야간 모드](MAP/TEST_images/08_night_mode.png)
 
 백색광은 암순응을 파괴하고 전력도 더 씁니다. 그래서 야간 모드는 **적색 단색**입니다.
 지도·계기·버튼이 전부 적색 계열로 전환되며, 활성 버튼만 반전 표시로 구분합니다.
@@ -104,7 +104,7 @@ NetworkX로 복귀 경로를 계산합니다. 외부 라우팅 API 호출이 한
 ## 구성
 
 ```text
-server.py          키오스크 서버 (:8780). MAP/시연용 을 서빙하고 /backend/* 를 :8765로 중계
+server.py          키오스크 서버 (:8780). MAP/kiosk 을 서빙하고 /backend/* 를 :8765로 중계
 tests/             서버 스모크 테스트
 
 MAP/               ★ 오프라인 지도 엔진 (이 저장소의 핵심)
@@ -117,7 +117,7 @@ MAP/               ★ 오프라인 지도 엔진 (이 저장소의 핵심)
 ├─ jetson/                   systemd 유닛과 Jetson 전원 게이팅 제어
 ├─ tests/                    단위 · 회귀 테스트 80개
 ├─ TEST_images/              위 화면 캡처 (1024×600 실제 해상도)
-└─ 시연용/                   ★ 현재 키오스크 UI
+└─ kiosk/                   ★ 현재 키오스크 UI
    ├─ video.html · video_app.js · video_map.js · video_styles.css   최신 화면
    ├─ index.html · app.js · live_app.js                             이전 세대 화면
    ├─ *.wav                                                         사전 합성 안내 음성
@@ -133,7 +133,7 @@ MAP/               ★ 오프라인 지도 엔진 (이 저장소의 핵심)
 python server.py --backend http://127.0.0.1:8765
 ```
 
-`:8780`에서 뜨고 기본 문서는 `MAP/시연용/video.html`입니다.
+`:8780`에서 뜨고 기본 문서는 `MAP/kiosk/video.html`입니다.
 backend를 먼저 띄운 뒤 Chromium을 `http://127.0.0.1:8780/` 단일 kiosk 창으로 엽니다.
 
 다른 화면을 띄우려면 `--root`와 `--index`로 바꿉니다.
@@ -202,5 +202,5 @@ node MAP/tests/ui_video_qa.js                     # video.html 계기·경로 �
   측위 정확도(±m·위성 수)를 항상 같이 표시합니다.
 - **`/product/` 화면은 모의 값이 하나라도 섞이면 `DEMO` 태그를 숨기지 않습니다.** `/video/` 촬영 화면의
   CO 칸 `DEMO` 문구는 테스트 완료 확인 후 2026-08-29에 제거했습니다(위 캡처는 제거 전 화면).
-- 실제 GPS 트랙은 커밋하지 않습니다. `시연용/`은 촬영용 시나리오 좌표만 씁니다.
+- 실제 GPS 트랙은 커밋하지 않습니다. `kiosk/`은 촬영용 시나리오 좌표만 씁니다.
 - 지도 데이터: © OpenStreetMap contributors, ODbL 1.0 — 화면에 귀속 표기를 유지합니다.

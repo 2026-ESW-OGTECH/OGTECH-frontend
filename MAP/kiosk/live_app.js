@@ -1,4 +1,4 @@
-/* SafeAid 실시간 제품 화면.
+/* OGTECH 실시간 제품 화면.
  * 센서·경로·일출몰 값은 /api/device가 계산하며 이 파일은 표시와 명시적 지점 선택만 담당합니다.
  */
 
@@ -791,7 +791,7 @@ function setupBootNotice() {
         : "성능저하·대기 상태를 확인하고 계속합니다";
     button.focus();
   };
-  document.addEventListener("safeaid:diagnostics", () => {
+  document.addEventListener("ogtech:diagnostics", () => {
     if (remaining <= 0) finishCountdown();
   });
   const update = () => {
@@ -858,7 +858,7 @@ async function loadBootDiagnostics() {
     });
   } finally {
     window.clearTimeout(timeout);
-    document.dispatchEvent(new CustomEvent("safeaid:diagnostics"));
+    document.dispatchEvent(new CustomEvent("ogtech:diagnostics"));
   }
 }
 

@@ -6,7 +6,7 @@
 경로·거리는 여기서도 map_engine 이 계산한다. 화면 쪽 JS 는 결과를 그리기만 한다.
 
     cd OGTECH-frontend/MAP
-    .venv/Scripts/python.exe 시연용/build_map_data.py
+    .venv/Scripts/python.exe kiosk/build_map_data.py
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ sys.path.insert(0, str(MAP_DIR))
 from map_engine import OfflineMap, haversine_m  # noqa: E402
 
 SOURCE = MAP_DIR / "sample_data" / "konkuk_walk.graphml"
-OUTPUT = MAP_DIR / "시연용" / "konkuk_map.js"
+OUTPUT = MAP_DIR / "kiosk" / "konkuk_map.js"
 
 # 시연 시나리오 거리. 3분짜리 영상에서 걸어서 보여 줄 수 있는 규모로 잡았다.
 DESTINATION_TARGET_M = 180.0
@@ -196,7 +196,7 @@ def main() -> int:
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     OUTPUT.write_text(
         "/* 자동 생성 파일 — 직접 고치지 마세요.\n"
-        " * 만든 명령: .venv/Scripts/python.exe 시연용/build_map_data.py\n"
+        " * 만든 명령: .venv/Scripts/python.exe kiosk/build_map_data.py\n"
         f" * 원본: sample_data/{SOURCE.name}\n"
         " * 경로·거리는 map_engine 의 A* 결과이며 LLM이 만든 값이 아닙니다. */\n"
         f"window.KONKUK_MAP = {body};\n",

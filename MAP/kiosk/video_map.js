@@ -1,5 +1,5 @@
 /* 자동 생성 파일 — 직접 고치지 마세요.
- * 만든 명령: .venv/Scripts/python.exe 시연용/build_video_map_data.py
+ * 만든 명령: .venv/Scripts/python.exe kiosk/build_video_map_data.py
  * 보행망: sample_data/konkuk_walk.graphml
  * POI 외곽: OpenStreetMap relation/7885627, way/369210727 (ODbL 1.0)
  * 경로·거리·방위는 코드가 계산하며 LLM이 만든 값이 아닙니다. */

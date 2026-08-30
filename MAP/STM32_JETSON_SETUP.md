@@ -260,7 +260,7 @@ Jetson 40핀 UART는 핀 멀티플렉스·콘솔 설정 영향을 받는다. 시
 ls -l /dev/serial/by-id/
 ```
 
-출력된 전체 경로를 `SAFEAID_STM32_PORT`에 넣는다.
+출력된 전체 경로를 `OGTECH_STM32_PORT`에 넣는다.
 
 > Jetson 40핀 헤더 직결은 보조 수단이다. JetPack 이미지와 캐리어보드에 따라 `/dev/ttyTHS0` 등
 > 장치명이 달라지므로 `Jetson-IO`와 현재 보드 핀맵을 확인한 뒤 사용한다 `[미검증]`.
@@ -285,19 +285,19 @@ Jetson 서비스도 접속하며 `STREAM ON`을 보내므로 잊어도 복구된
 Jetson으로 옮겨야 하는 폴더는 세 개다.
 
 ```text
-OGTECH-frontend/MAP/            → /opt/safeaid/MAP
-OGTECH-llm/Co-LLM/              → /opt/safeaid/Co-LLM
+OGTECH-frontend/MAP/            → /opt/ogtech/MAP
+OGTECH-llm/Co-LLM/              → /opt/ogtech/Co-LLM
 OGTECH-embedded/Core/           → 재플래시·참조용
 ```
 
 ```bash
-cd /opt/safeaid/MAP
+cd /opt/ogtech/MAP
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --no-index --find-links wheels -r requirements.txt
 chmod +x jetson/start-map.sh jetson/start-kiosk.sh
 
-cd /opt/safeaid/Co-LLM
+cd /opt/ogtech/Co-LLM
 python3 -m venv .venv
 . .venv/bin/activate
 chmod +x scripts/07_product_voice.sh scripts/08_device_monitor.sh scripts/09_physical_voice.sh
@@ -314,7 +314,7 @@ timedatectl
 ```
 
 일출·일몰은 GPS 좌표와 로컬 날짜·시간으로 계산한다. GPS만으로 정치적 시간대 경계를 확정할 수 없으므로,
-다른 지역으로 이동할 때는 시스템 시간대 또는 `SAFEAID_UTC_OFFSET_MIN`을 현지 값으로 바꿔야 한다.
+다른 지역으로 이동할 때는 시스템 시간대 또는 `OGTECH_UTC_OFFSET_MIN`을 현지 값으로 바꿔야 한다.
 
 ### 5.4 환경변수
 
@@ -322,19 +322,19 @@ timedatectl
 
 | 변수 | 기본값 | 뜻 |
 |---|---|---|
-| `SAFEAID_STM32_PORT` | `/dev/ttyACM0` | STM32 직렬 포트. `/dev/serial/by-id/...` 권장 |
-| `SAFEAID_STM32_BAUD` | `115200` | 펌웨어 USART3 보율과 일치해야 한다 |
-| `SAFEAID_UTC_OFFSET_MIN` | `540` | 한국 고정 시연값 |
-| `SAFEAID_TRAIL_THRESHOLD_M` | `30` | 트레일 이탈 임계 `[추정: 현장 실측 전 기본값]` |
-| `SAFEAID_RETURN_SPEED_MPS` | `0.8` | 보행 속도 `[추정]` |
-| `SAFEAID_RETURN_MARGIN_MIN` | `30` | 귀환 안전 여유 `[추정]` |
+| `OGTECH_STM32_PORT` | `/dev/ttyACM0` | STM32 직렬 포트. `/dev/serial/by-id/...` 권장 |
+| `OGTECH_STM32_BAUD` | `115200` | 펌웨어 USART3 보율과 일치해야 한다 |
+| `OGTECH_UTC_OFFSET_MIN` | `540` | 한국 고정 시연값 |
+| `OGTECH_TRAIL_THRESHOLD_M` | `30` | 트레일 이탈 임계 `[추정: 현장 실측 전 기본값]` |
+| `OGTECH_RETURN_SPEED_MPS` | `0.8` | 보행 속도 `[추정]` |
+| `OGTECH_RETURN_MARGIN_MIN` | `30` | 귀환 안전 여유 `[추정]` |
 
 ### 5.5 수동 실행
 
 ```bash
-cd /opt/safeaid/MAP
-export SAFEAID_STM32_PORT=/dev/serial/by-id/<실제-장치-ID>
-export SAFEAID_UTC_OFFSET_MIN=540
+cd /opt/ogtech/MAP
+export OGTECH_STM32_PORT=/dev/serial/by-id/<실제-장치-ID>
+export OGTECH_UTC_OFFSET_MIN=540
 ./jetson/start-map.sh
 ```
 
@@ -381,33 +381,33 @@ http://127.0.0.1:8790/video/       촬영용 자동 DEMO 화면
 음성 서비스를 올린 뒤 키오스크를 마지막에 시작한다.
 
 ```bash
-sudo install -d /etc/safeaid
-sudo install -m 0644 jetson/map.env.example /etc/safeaid/map.env
-sudo install -m 0644 /opt/safeaid/Co-LLM/jetson/audio.env.example /etc/safeaid/audio.env
-sudo install -m 0644 jetson/smartaid-map.service /etc/systemd/system/
-sudo install -m 0644 jetson/smartaid-power-manager.service /etc/systemd/system/
-sudo install -m 0644 /opt/safeaid/Co-LLM/jetson/smartaid-physical-voice.service /etc/systemd/system/
-sudo install -m 0644 /opt/safeaid/Co-LLM/jetson/smartaid-device-monitor.service /etc/systemd/system/
-sudo install -m 0644 jetson/smartaid-kiosk.service /etc/systemd/system/
+sudo install -d /etc/ogtech
+sudo install -m 0644 jetson/map.env.example /etc/ogtech/map.env
+sudo install -m 0644 /opt/ogtech/Co-LLM/jetson/audio.env.example /etc/ogtech/audio.env
+sudo install -m 0644 jetson/ogtech-map.service /etc/systemd/system/
+sudo install -m 0644 jetson/ogtech-power-manager.service /etc/systemd/system/
+sudo install -m 0644 /opt/ogtech/Co-LLM/jetson/ogtech-physical-voice.service /etc/systemd/system/
+sudo install -m 0644 /opt/ogtech/Co-LLM/jetson/ogtech-device-monitor.service /etc/systemd/system/
+sudo install -m 0644 jetson/ogtech-kiosk.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now smartaid-map.service
-sudo systemctl enable --now smartaid-power-manager.service
-sudo systemctl enable --now smartaid-physical-voice.service
-sudo systemctl enable --now smartaid-device-monitor.service
-sudo systemctl enable --now smartaid-kiosk.service
+sudo systemctl enable --now ogtech-map.service
+sudo systemctl enable --now ogtech-power-manager.service
+sudo systemctl enable --now ogtech-physical-voice.service
+sudo systemctl enable --now ogtech-device-monitor.service
+sudo systemctl enable --now ogtech-kiosk.service
 ```
 
 로그:
 
 ```bash
-journalctl -u smartaid-map.service -f
-journalctl -u smartaid-power-manager.service -f
-journalctl -u smartaid-physical-voice.service -f
-journalctl -u smartaid-device-monitor.service -f
-journalctl -u smartaid-kiosk.service -f
+journalctl -u ogtech-map.service -f
+journalctl -u ogtech-power-manager.service -f
+journalctl -u ogtech-physical-voice.service -f
+journalctl -u ogtech-device-monitor.service -f
+journalctl -u ogtech-kiosk.service -f
 ```
 
-> `smartaid-power-manager.service`는 물리 전원 버튼 종료 handshake용이다. 현재 펌웨어에는
+> `ogtech-power-manager.service`는 물리 전원 버튼 종료 handshake용이다. 현재 펌웨어에는
 > 버튼과 handshake가 없으므로(7절 참조) 이 서비스는 아직 할 일이 없다. 서비스를 올려도
 > 무해하지만, 동작을 시연 항목에 넣지 않는다.
 
@@ -502,12 +502,12 @@ SET RTC UTC YYYY-MM-DDTHH:MM:SSZ   ← DS3231 연결 후
 
 ### 7.4 목표 전원 버튼 handshake
 
-`jetson/power_control.py`와 `smartaid-power-manager.service`는 이 절차를 전제로 작성되어 있다.
+`jetson/power_control.py`와 `ogtech-power-manager.service`는 이 절차를 전제로 작성되어 있다.
 펌웨어 쪽 버튼이 없으므로 아직 성립하지 않는다 — 현재 펌웨어는 `POWER OFF ACK/CANCEL`을 받으면
 종료 대기 상태가 없다는 사실을 `event:"power"` `state:"status"`로 정직하게 보고할 뿐이다.
 
 1. 게이트가 켜진 상태에서 전원 버튼을 2초 이상 길게 누른 뒤 놓으면 STM32가 `shutdown_requested`를 보낸다.
-2. `smartaid-power-manager`가 CRC로 검증된 pending을 확인하고 `/api/power/shutdown-ack`로
+2. `ogtech-power-manager`가 CRC로 검증된 pending을 확인하고 `/api/power/shutdown-ack`로
    `POWER OFF ACK`를 큐잉한다.
 3. STM32가 ACK를 받으면 `shutdown_ack`를 내보내고 **90초 뒤** PC9 게이트를 끈다.
 4. ACK 확인 뒤 서비스가 `systemctl poweroff --no-block`을 요청한다. 실패하면
@@ -533,7 +533,7 @@ SET RTC UTC YYYY-MM-DDTHH:MM:SSZ   ← DS3231 연결 후
 |---|---|
 | 터미널에 아무것도 안 나온다 | 보율이 **115200**인지 → ST-LINK USB가 Jetson에 잡혔는지(`ls /dev/ttyACM*`) → 리셋 버튼을 눌러 부팅 배너 3줄이 나오는지 |
 | `Permission denied: /dev/ttyACM0` | 장치의 실제 소유 그룹을 `ls -l /dev/ttyACM0`으로 확인한 뒤 서비스 사용자(`safeaid`)를 그 그룹에 넣는다. Ubuntu는 보통 `dialout`이지만 단정하지 않는다 `[미검증]` |
-| 포트 경로가 부팅마다 바뀐다 | `ls -l /dev/serial/by-id/`의 고정 경로를 `SAFEAID_STM32_PORT`에 넣는다 |
+| 포트 경로가 부팅마다 바뀐다 | `ls -l /dev/serial/by-id/`의 고정 경로를 `OGTECH_STM32_PORT`에 넣는다 |
 | 서버는 뜨는데 `/product/`가 계속 회색 | `/api/device`에서 `received_lines`는 느는데 `rejected_lines`도 같이 늘면 **보드에 구버전(콘솔 형식) 펌웨어가 올라가 있는 것** — JSONL 펌웨어를 다시 플래시한다. 둘 다 안 늘면 포트·보율부터 다시 본다 |
 | `curl /api/device`에 `connected=false` | `start-map.sh`가 경고를 찍고 저하 부팅했는지 로그 확인 → 케이블 재연결 후 2초 재시도 루프가 복구하는지 |
 | `CO=NOT_FOUND`가 사라지지 않는다 | ZE16B-CO 전원 정격 → TX/RX가 뒤바뀌지 않았는지 → 보율 9600 → 프레임 헤더 `FF 04 03`이 맞는지 |

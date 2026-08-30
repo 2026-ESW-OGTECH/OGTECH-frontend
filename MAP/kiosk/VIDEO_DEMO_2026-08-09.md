@@ -31,7 +31,7 @@ Jetson과 STM32를 한 전원에서 동시에 켤 수 없는 조건을 숨기지
 
 ```bash
 DISPLAY=:0 chromium-browser --kiosk --window-size=1024,600 \
-  file:///home/kit/00_TEST/MAP/시연용/video.html
+  file:///home/kit/00_TEST/MAP/kiosk/video.html
 ```
 
 `chromium-browser`가 없으면 `chromium`으로 바꾼다. MAP 검증 서버를 같이 쓸 때는 다음과 같다.
@@ -80,7 +80,7 @@ bash /home/kit/00_TEST/0809_test/auto_demo_ssh.sh
 ```
 
 `auto_demo_ssh.sh`는 현재 화면에 `A` 키를 보내므로 Firefox 키오스크 창이 앞에 있어야 한다.
-전체 파일을 `시연용` 폴더째 옮긴 경우에는 해당 하위 경로를 사용한다.
+전체 파일을 `kiosk` 폴더째 옮긴 경우에는 해당 하위 경로를 사용한다.
 
 경로 정보 카드에는 이동 대상(`목적지` 또는 `BASE CAMP`), 방위각, 남은 거리와 함께 KST 예상
 도착 시각과 남은 분을 표시한다. 두 값은 남은 경로 거리와 1.4 m/s 보행 속도로 코드가 계산한다.

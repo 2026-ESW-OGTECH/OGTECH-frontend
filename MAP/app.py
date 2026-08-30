@@ -1,4 +1,4 @@
-"""SafeAid Kit 오프라인 지도 변환 검증 웹앱."""
+"""OGTECH Kit 오프라인 지도 변환 검증 웹앱."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ from navigation_service import NavigationInputError, NavigationService
 
 ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = ROOT / "static"
-PRODUCT_ROOT = ROOT / "시연용"
+PRODUCT_ROOT = ROOT / "kiosk"
 RUNTIME_ROOT = ROOT / "runtime"
 UPLOAD_ROOT = RUNTIME_ROOT / "uploads"
 ACTIVE_MAP = RUNTIME_ROOT / "active_map.json"
@@ -936,13 +936,13 @@ def main() -> None:
     parser.add_argument(
         "--gps-mode",
         choices=("off", "replay", "air530", "stm32"),
-        default=os.getenv("SAFEAID_GPS_MODE", "off"),
+        default=os.getenv("OGTECH_GPS_MODE", "off"),
     )
-    parser.add_argument("--gps-port", default=os.getenv("SAFEAID_GPS_PORT", ""))
+    parser.add_argument("--gps-port", default=os.getenv("OGTECH_GPS_PORT", ""))
     parser.add_argument(
         "--gps-baud",
         type=int,
-        default=int(os.getenv("SAFEAID_GPS_BAUD", "0")),
+        default=int(os.getenv("OGTECH_GPS_BAUD", "0")),
     )
     args = parser.parse_args()
     server = build_server(
@@ -955,7 +955,7 @@ def main() -> None:
         },
     )
     print(f"지도 검증 도구: http://{args.host}:{args.port}/")
-    print(f"SafeAid 제품 화면: http://{args.host}:{args.port}/product/")
+    print(f"OGTECH 제품 화면: http://{args.host}:{args.port}/product/")
     print(f"촬영 전용 DEMO: http://{args.host}:{args.port}/video/")
     print("종료: Ctrl+C")
     try:

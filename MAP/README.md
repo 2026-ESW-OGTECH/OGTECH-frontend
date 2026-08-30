@@ -1,4 +1,4 @@
-# SafeAid 오프라인 지도·STM32 센서 앱
+# OGTECH 오프라인 지도·STM32 센서 앱
 
 Jetson Xavier NX에서 STM32H7A3ZI-Q (Nucleo-H7A3ZI-Q) 센서 허브의 GPS·온습도·기압·CO·RTC·물리 버튼을 받아 7인치 화면에
 표시하고, 오프라인 보행 지도에서 경로·트레일 이탈·일출몰·베이스캠프 귀환 권고 시각을 계산하는 로컬 앱이다.
@@ -92,7 +92,7 @@ Co-LLM은 저장된 지점의 이름/ID에 대응하는 열거형 action만 호�
 - 버튼은 active-low, 40 ms debounce이며 `PA0=power`, `PA1=checkpoint`, `PA4=voice`다. 서버는
   `power/checkpoint/voice`와 `pressed/released/held_ms`만 수용하고 좌표는 절대 전달하지 않는다.
 - `PA0`을 2초 이상 누른 뒤 놓으면 STM32가 `shutdown_requested`를 내보낸다. Jetson의
-  `smartaid-power-manager`는 CRC로 검증된 pending을 확인하고 `/api/power/shutdown-ack`로 ACK를 먼저
+  `ogtech-power-manager`는 CRC로 검증된 pending을 확인하고 `/api/power/shutdown-ack`로 ACK를 먼저
   보낸 뒤 `systemctl poweroff --no-block`을 요청한다. STM32는 ACK 뒤 `PC9` gate 차단을 **90초 후**로
   예약한다. systemd 요청이 실패하면 서비스가 즉시 `POWER OFF CANCEL`을 보내 예약을 취소한다.
   ACK가 없으면 **120초 후** pending을 취소하고 gate를 유지한다.

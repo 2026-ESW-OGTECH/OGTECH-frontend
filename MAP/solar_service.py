@@ -19,17 +19,17 @@ class SolarCalculationError(ValueError):
 def configured_timezone() -> tzinfo:
     """환경 변수, IANA 이름, 운영체제 현지 시간대 순서로 시간대를 고른다."""
 
-    raw_offset = os.getenv("SAFEAID_UTC_OFFSET_MIN", "").strip()
+    raw_offset = os.getenv("OGTECH_UTC_OFFSET_MIN", "").strip()
     if raw_offset:
         try:
             minutes = int(raw_offset)
         except ValueError as exc:
-            raise SolarCalculationError("SAFEAID_UTC_OFFSET_MIN은 분 단위 정수여야 합니다") from exc
+            raise SolarCalculationError("OGTECH_UTC_OFFSET_MIN은 분 단위 정수여야 합니다") from exc
         if not -14 * 60 <= minutes <= 14 * 60:
             raise SolarCalculationError("UTC 오프셋은 -14시간부터 +14시간 사이여야 합니다")
         return timezone(timedelta(minutes=minutes))
 
-    timezone_name = os.getenv("SAFEAID_TIMEZONE", "").strip()
+    timezone_name = os.getenv("OGTECH_TIMEZONE", "").strip()
     if timezone_name:
         try:
             from zoneinfo import ZoneInfo  # Python 3.9+
@@ -37,8 +37,8 @@ def configured_timezone() -> tzinfo:
             return ZoneInfo(timezone_name)
         except (ImportError, KeyError) as exc:
             raise SolarCalculationError(
-                "SAFEAID_TIMEZONE을 읽지 못했습니다. Jetson 시스템 시간대를 설정하거나 "
-                "SAFEAID_UTC_OFFSET_MIN을 사용하세요"
+                "OGTECH_TIMEZONE을 읽지 못했습니다. Jetson 시스템 시간대를 설정하거나 "
+                "OGTECH_UTC_OFFSET_MIN을 사용하세요"
             ) from exc
 
     return datetime.now().astimezone().tzinfo or timezone.utc

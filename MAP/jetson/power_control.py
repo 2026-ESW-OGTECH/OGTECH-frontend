@@ -173,7 +173,7 @@ def perform_poweroff(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="SafeAid 물리 전원 정상 종료 브리지")
+    parser = argparse.ArgumentParser(description="OGTECH 물리 전원 정상 종료 브리지")
     parser.add_argument("--map-url", default="http://127.0.0.1:8790")
     parser.add_argument("--systemctl", default="/usr/bin/systemctl")
     parser.add_argument("--no-poweroff", action="store_true", help="이벤트만 확인하고 종료하지 않음")

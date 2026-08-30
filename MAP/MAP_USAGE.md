@@ -2,7 +2,7 @@
 
 > **2026-08-09 촬영 구분:** 실제 STM32 통합 제품 화면은 `http://127.0.0.1:8790/product/`,
 > 오늘 컷 편집용 명시적 합성 화면은 `http://127.0.0.1:8790/video/`다. 촬영용 최신 순서와
-> STM32 단독 GPS 기록 한계는 [VIDEO_DEMO_2026-08-09.md](시연용/VIDEO_DEMO_2026-08-09.md)를 따른다.
+> STM32 단독 GPS 기록 한계는 [VIDEO_DEMO_2026-08-09.md](kiosk/VIDEO_DEMO_2026-08-09.md)를 따른다.
 > 실제 배선·연동은 [STM32_JETSON_SETUP.md](STM32_JETSON_SETUP.md)를 따른다.
 
 Jetson에 SSH로 접속해서 쓰는 절차입니다. 노트북에서 `ssh kit@<젯슨IP>` 로 붙은 뒤 그대로 따라 하면 됩니다.
@@ -19,7 +19,7 @@ Jetson에 SSH로 접속해서 쓰는 절차입니다. 노트북에서 `ssh kit@<
 
 | 무엇 | 언제 쓰나 | `{위치}` |
 |---|---|---|
-| **A. 오늘 영상 화면** | **공학관↔일감호 컷 편집용 DEMO.** 합성값 표시 | `/home/kit/00_TEST/MAP/시연용/video.html` |
+| **A. 오늘 영상 화면** | **공학관↔일감호 컷 편집용 DEMO.** 합성값 표시 | `/home/kit/00_TEST/MAP/kiosk/video.html` |
 | **A-실제. 제품 화면** | STM32와 Jetson이 같이 연결된 다음 주 실측 화면 | `http://127.0.0.1:8790/product/` |
 | **B. 지도 변환 검증 앱** | GraphML 넣어 보기, GPS 연결 확인. 개발자 도구 | `/home/kit/00_TEST/MAP` |
 
@@ -43,13 +43,13 @@ ls
 
 ```
 app.py  gps_service.py  map_engine.py  requirements.txt
-runtime  sample_data  static  tests  시연용
+kiosk  runtime  sample_data  static  tests
 ```
 
-`시연용` 폴더 안도 확인합니다. 오늘 촬영에는 **`video.html`, `video_map.js`, WAV 네 개**가 필요합니다.
+`kiosk` 폴더 안도 확인합니다. 오늘 촬영에는 **`video.html`, `video_map.js`, WAV 네 개**가 필요합니다.
 
 ```bash
-ls /home/kit/00_TEST/MAP/시연용
+ls /home/kit/00_TEST/MAP/kiosk
 ```
 
 ```
@@ -75,7 +75,7 @@ SSH로 명령을 치지만 화면은 젯슨에 달린 7인치에 나옵니다. �
 | `{화면}` | 젯슨에 연결된 7인치 |
 
 ```bash
-DISPLAY=:0 chromium-browser --kiosk --window-size=1024,600 file:///home/kit/00_TEST/MAP/시연용/video.html
+DISPLAY=:0 chromium-browser --kiosk --window-size=1024,600 file:///home/kit/00_TEST/MAP/kiosk/video.html
 ```
 
 `chromium-browser` 가 없다고 나오면 `chromium` 으로 바꿔서 다시 칩니다.
@@ -90,12 +90,12 @@ pkill chromium
 
 | | |
 |---|---|
-| `{위치}` | `/home/kit/00_TEST/MAP/시연용` |
+| `{위치}` | `/home/kit/00_TEST/MAP/kiosk` |
 | `{실행}` | `python3 -m http.server 8791 --bind 127.0.0.1` |
 | `{화면}` | `http://127.0.0.1:8791/video.html` |
 
 ```bash
-cd /home/kit/00_TEST/MAP/시연용
+cd /home/kit/00_TEST/MAP/kiosk
 python3 -m http.server 8791 --bind 127.0.0.1
 ```
 
@@ -246,4 +246,4 @@ pkill -f "http.server"
 | 노드/엣지가 계속 933·2668 | 이전 앱이 아직 떠 있음 | `pkill -f app.py` 후 다시 실행 |
 | 화면 오른쪽에 패널이 보임 | 촬영 보조 패널 | `H` 를 눌러 숨깁니다 |
 
-관련 문서: [README.md](README.md) 검증 앱 상세 · [시연용/README.md](시연용/README.md) 화면 설계 근거 · [프런트엔드 README](../README.md) UI 물리 스케일과 색 규율
+관련 문서: [README.md](README.md) 검증 앱 상세 · [kiosk/README.md](kiosk/README.md) 화면 설계 근거 · [프런트엔드 README](../README.md) UI 물리 스케일과 색 규율

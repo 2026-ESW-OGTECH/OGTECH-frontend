@@ -1,7 +1,7 @@
 /* 1024×600 촬영·키오스크 화면(video.html)의 상단 계기·경로 이탈 경고 회귀 검사.
  * 실행 환경에는 Playwright가 필요하며 제품 런타임에는 포함하지 않는다.
  *
- *   node tests/ui_video_qa.js [URL 또는 생략=file://시연용/video.html] [출력 폴더]
+ *   node tests/ui_video_qa.js [URL 또는 생략=file://kiosk/video.html] [출력 폴더]
  *
  * 검사 항목
  *   1) CO 농도 칸에 'CO 전용 · DEMO' 문구가 없다
@@ -17,7 +17,7 @@ const fs = require("fs");
 const path = require("path");
 const { chromium } = require("playwright");
 
-const defaultUrl = "file://" + path.resolve(__dirname, "..", "시연용", "video.html");
+const defaultUrl = "file://" + path.resolve(__dirname, "..", "kiosk", "video.html");
 const baseUrl = process.argv[2] || defaultUrl;
 const outputDir = path.resolve(process.argv[3] || "test-results");
 
@@ -33,8 +33,8 @@ function rgbOf(text) {
 async function main() {
   fs.mkdirSync(outputDir, { recursive: true });
   const launchOptions = { headless: true };
-  if (process.env.SAFEAID_BROWSER_EXECUTABLE) {
-    launchOptions.executablePath = process.env.SAFEAID_BROWSER_EXECUTABLE;
+  if (process.env.OGTECH_BROWSER_EXECUTABLE) {
+    launchOptions.executablePath = process.env.OGTECH_BROWSER_EXECUTABLE;
   }
   const browser = await chromium.launch(launchOptions);
   const page = await browser.newPage({ viewport: { width: 1024, height: 600 } });
@@ -46,7 +46,7 @@ async function main() {
 
   try {
     await page.goto(baseUrl, { waitUntil: "load", timeout: 10_000 });
-    await page.waitForFunction(() => Boolean(window.safeaidVideoQa), null, { timeout: 5_000 });
+    await page.waitForFunction(() => Boolean(window.ogtechVideoQa), null, { timeout: 5_000 });
 
     // 1) CO 칸 문구
     const coText = await page.locator("#glanceCo").innerText();
@@ -100,7 +100,7 @@ async function main() {
     ];
     const temperatureResults = [];
     for (const expectation of expectations) {
-      await page.evaluate((value) => window.safeaidVideoQa.setEnvironment({ temperatureC: value }),
+      await page.evaluate((value) => window.ogtechVideoQa.setEnvironment({ temperatureC: value }),
         expectation.temperatureC);
       const env = await readEnv();
       const expectedColor = String(hexToRgb(env.tokens[expectation.token]));
@@ -110,7 +110,7 @@ async function main() {
         `${expectation.temperatureC}°C color=${env.temperatureColor}, 기대 ${expectation.token} ${env.tokens[expectation.token]}`);
       temperatureResults.push({ temperatureC: expectation.temperatureC, level: env.level, color: env.temperatureColor });
     }
-    await page.evaluate(() => window.safeaidVideoQa.setEnvironment({ temperatureC: 30.0 }));
+    await page.evaluate(() => window.ogtechVideoQa.setEnvironment({ temperatureC: 30.0 }));
 
     // 3) 경로 이탈 배너 — 장면 1(경로 없음)에서는 판정하지 않는다
     await page.keyboard.press("D");
@@ -121,14 +121,14 @@ async function main() {
 
     await page.keyboard.press("2");   // 일감호 경로 설정 (headless라 음성은 실패해도 무방)
     await page.waitForTimeout(200);
-    const onRoute = await page.evaluate(() => window.safeaidVideoQa.routeDeviation());
+    const onRoute = await page.evaluate(() => window.ogtechVideoQa.routeDeviation());
     requireCondition(onRoute && onRoute.offRoute === false && onRoute.offsetM < 1,
       `경로 위인데 이탈로 판정: ${JSON.stringify(onRoute)}`);
     requireCondition(await page.locator("#routeAlert").isHidden(), "경로 위인데 이탈 배너가 보임");
 
     await page.keyboard.press("D");
     await page.waitForTimeout(200);
-    const offRoute = await page.evaluate(() => window.safeaidVideoQa.routeDeviation());
+    const offRoute = await page.evaluate(() => window.ogtechVideoQa.routeDeviation());
     requireCondition(offRoute && offRoute.offRoute === true && offRoute.offsetM > offRoute.thresholdM,
       `이탈 시연인데 이탈로 판정되지 않음: ${JSON.stringify(offRoute)}`);
     requireCondition(await page.locator("#routeAlert").isVisible(), "이탈했는데 배너가 안 보임");
