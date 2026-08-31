@@ -1103,9 +1103,10 @@ function showToast(message, duration) {
   toastTimer = window.setTimeout(() => { toast.hidden = true; }, duration || 2600);
 }
 
-function audioDurationMs(selector, fallback) {
-  const audio = document.querySelector(selector);
-  const duration = audio ? audio.duration : Number.NaN;
+function clipDurationMs(kind, fallback) {
+  const entry = FIXED_AUDIO[kind];
+  const buffer = entry ? speech.clips.get(entry.file) : null;
+  const duration = buffer ? buffer.duration : Number.NaN;
   return Number.isFinite(duration) && duration > 0
     ? Math.ceil((duration + 0.45) * 1000)
     : fallback;
@@ -1280,14 +1281,159 @@ function stopWalk(keepPosition) {
  * 기계음으로 떨어져 제품 음성(sherpa KSS 여성 0.9배속)과 목소리가 갈린다.
  * 서버 /api/tts 가 같은 파라미터로 합성해 주고, 같은 문장은 서버가 캐시한다.
  *
+ * 재생은 Web Audio(AudioBufferSourceNode)로 하고 WAV 는 decodeWav 가 직접
+ * 뜯는다. 젯슨(L4T aarch64)의 Firefox 는 미디어 디코더가 죽어 있어 <audio> 도
+ * decodeAudioData 도 못 쓴다 — 앞은 MEDIA_ERR_DECODE, 뒤는 EncodingError 로
+ * 떨어지고 소리는 나지 않는다. 오실레이터는 정상 재생되므로 고장난 것은 출력이
+ * 아니라 디코더뿐이다(2026-08-31 젯슨 실측, 모니터 녹음 RMS 로 확인).
+ *
  * 음성은 보조 수단이다. 합성이 안 되면 조용히 넘어가고 글자는 그대로 남는다. */
+const FIXED_AUDIO = {
+  destination: {
+    file: "destination_set.wav",
+    text: "가장 가까운 지점에 호수가 있습니다. 이곳을 목적지로 지정할까요? 네, 목적지로 설정되었습니다.",
+  },
+  arrival: {
+    file: "destination_arrived.wav",
+    text: "목적지에 도착하였습니다.",
+  },
+  basecamp: {
+    file: "return_to_base.wav",
+    text: "Base Camp에 도착하였습니다.",
+  },
+};
+
 const speech = {
-  audio: null,
-  objectUrl: "",
+  ctx: null,
+  source: null,
+  endsAt: 0,
   lastText: "",
   lastAt: 0,
   unavailable: false,   // 모델이 없는 환경에서 매번 요청하지 않는다
+  clips: new Map(),     // 고정 음성은 한 번만 받아서 디코딩해 둔다
 };
+
+function audioContext() {
+  const Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return null;
+  if (!speech.ctx) speech.ctx = new Ctor();
+  if (speech.ctx.state === "suspended") speech.ctx.resume().catch(() => {});
+  return speech.ctx;
+}
+
+/* WAV 를 직접 뜯어 AudioBuffer 로 만든다.
+ *
+ * 젯슨(L4T aarch64) Firefox 는 미디어 디코더가 죽어 있어 <audio> 는
+ * MEDIA_ERR_DECODE, decodeAudioData 는 EncodingError 로 떨어진다. 소리 출력
+ * 자체는 멀쩡해서(오실레이터는 정상 재생) 디코딩만 우리가 하면 된다.
+ * 화면이 쓰는 음성은 녹음도 합성도 전부 22.05 kHz 16 bit PCM WAV 다. */
+function decodeWav(ctx, bytes) {
+  const view = new DataView(bytes);
+  const tag = (offset) => String.fromCharCode(
+    view.getUint8(offset), view.getUint8(offset + 1),
+    view.getUint8(offset + 2), view.getUint8(offset + 3),
+  );
+  if (view.byteLength < 44 || tag(0) !== "RIFF" || tag(8) !== "WAVE") {
+    throw new Error("WAV 가 아니다");
+  }
+
+  let format = 0;
+  let channels = 0;
+  let rate = 0;
+  let bits = 0;
+  let dataStart = -1;
+  let dataSize = 0;
+  let offset = 12;
+  while (offset + 8 <= view.byteLength) {
+    const id = tag(offset);
+    const size = view.getUint32(offset + 4, true);
+    const body = offset + 8;
+    if (id === "fmt ") {
+      format = view.getUint16(body, true);
+      channels = view.getUint16(body + 2, true);
+      rate = view.getUint32(body + 4, true);
+      bits = view.getUint16(body + 14, true);
+    } else if (id === "data") {
+      dataStart = body;
+      dataSize = Math.min(size, view.byteLength - body);
+      break;
+    }
+    offset = body + size + (size % 2);   // 청크는 짝수 바이트 경계에 놓인다
+  }
+  if (dataStart < 0 || !channels || !rate) throw new Error("WAV 헤더가 불완전하다");
+  if (format !== 1 || bits !== 16) throw new Error(`지원하지 않는 WAV(${format}/${bits}bit)`);
+
+  const frames = Math.floor(dataSize / (2 * channels));
+  if (frames <= 0) throw new Error("WAV 에 소리가 없다");
+  const buffer = ctx.createBuffer(channels, frames, rate);
+  for (let channel = 0; channel < channels; channel += 1) {
+    const target = buffer.getChannelData(channel);
+    let cursor = dataStart + channel * 2;
+    for (let frame = 0; frame < frames; frame += 1) {
+      target[frame] = view.getInt16(cursor, true) / 32768;
+      cursor += channels * 2;
+    }
+  }
+  return buffer;
+}
+
+/* 앞서 읽던 문장을 끊고 새로 재생한다. 재생을 시작했으면 true. */
+function playBuffer(buffer) {
+  const ctx = audioContext();
+  if (!ctx || !buffer) return false;
+  if (speech.source) {
+    try {
+      speech.source.stop();
+    } catch (error) {
+      /* 이미 끝난 소리는 멈출 것이 없다 */
+    }
+  }
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(ctx.destination);
+  source.onended = () => {
+    if (speech.source !== source) return;
+    speech.source = null;
+    speech.endsAt = 0;
+  };
+  source.start();
+  speech.source = source;
+  speech.endsAt = Date.now() + buffer.duration * 1000;
+  return true;
+}
+
+/* 녹음 파일을 받아 디코딩해 두고 재생한다. 두 번째부터는 받아 둔 것을 쓴다. */
+async function playClip(file) {
+  const cached = speech.clips.get(file);
+  if (cached) return playBuffer(cached);
+  const ctx = audioContext();
+  if (!ctx) return false;
+  try {
+    const response = await fetch(file);
+    if (!response.ok) return false;
+    const buffer = decodeWav(ctx, await response.arrayBuffer());
+    speech.clips.set(file, buffer);
+    return playBuffer(buffer);
+  } catch (error) {
+    return false;   // 녹음이 없어도 글자는 그대로 보인다
+  }
+}
+
+/* 장면이 바뀔 때 받아오느라 늦지 않게 미리 디코딩해 둔다. */
+function warmFixedAudio() {
+  if (!audioContext()) return;
+  Object.values(FIXED_AUDIO).forEach(async (entry) => {
+    if (speech.clips.has(entry.file)) return;
+    const ctx = audioContext();
+    try {
+      const response = await fetch(entry.file);
+      if (!response.ok) return;
+      speech.clips.set(entry.file, decodeWav(ctx, await response.arrayBuffer()));
+    } catch (error) {
+      /* 못 받으면 재생하는 순간에 다시 받는다 */
+    }
+  });
+}
 
 async function speak(text) {
   const cleaned = String(text || "").trim();
@@ -1298,10 +1444,10 @@ async function speak(text) {
   speech.lastText = cleaned;
   speech.lastAt = now;
 
-  let blob;
+  const ctx = audioContext();
+  if (!ctx) return;
   try {
-    // <audio src> 대신 fetch 로 받는다. 모델이 없는 개발 PC 에서 503 이 와도
-    // 콘솔에 리소스 오류를 남기지 않는다.
+    // 모델이 없는 개발 PC 에서 콘솔에 리소스 오류를 남기지 않도록 fetch 로 받는다.
     const response = await fetch(`/api/tts?text=${encodeURIComponent(cleaned)}`);
     if (!response.ok) return;
     // 음성이 없는 장치는 JSON 으로 그 사실을 알려 준다. 그 뒤로는 요청하지 않는다.
@@ -1309,19 +1455,9 @@ async function speak(text) {
       speech.unavailable = true;
       return;
     }
-    blob = await response.blob();
+    playBuffer(decodeWav(ctx, await response.arrayBuffer()));
   } catch (error) {
-    return;  // 음성이 없어도 글자는 그대로 보인다
-  }
-
-  if (speech.audio) speech.audio.pause();
-  if (speech.objectUrl) URL.revokeObjectURL(speech.objectUrl);
-  speech.objectUrl = URL.createObjectURL(blob);
-  const audio = new Audio(speech.objectUrl);
-  speech.audio = audio;
-  const playing = audio.play();
-  if (playing && typeof playing.catch === "function") {
-    playing.catch(() => {});
+    /* 음성이 없어도 글자는 그대로 보인다 */
   }
 }
 
@@ -1344,9 +1480,8 @@ function playDaylightAudio() {
 /* 지금 읽고 있는 문장의 남은 길이(ms). 자동 시연이 문장 중간에 다음 장면으로
  * 넘어가 음성이 잘리지 않게 쓴다. 값이 이상하면 시연이 멈추지 않도록 상한을 둔다. */
 function speechRemainingMs() {
-  const audio = speech.audio;
-  if (!audio || audio.paused || audio.ended) return 0;
-  const remaining = (Number(audio.duration) - Number(audio.currentTime)) * 1000;
+  if (!speech.source) return 0;
+  const remaining = speech.endsAt - Date.now();
   if (!Number.isFinite(remaining) || remaining <= 0) return 0;
   return Math.min(8000, Math.round(remaining));
 }
@@ -1356,27 +1491,10 @@ function playFixedAudio(kind) {
     playDaylightAudio();
     return;
   }
-  const fixedAudio = {
-    destination: {
-      selector: "#destinationAudio",
-      text: "가장 가까운 지점에 호수가 있습니다. 이곳을 목적지로 지정할까요? 네, 목적지로 설정되었습니다.",
-    },
-    arrival: {
-      selector: "#arrivalAudio",
-      text: "목적지에 도착하였습니다.",
-    },
-    basecamp: {
-      selector: "#basecampAudio",
-      text: "Base Camp에 도착하였습니다.",
-    },
-  };
-  const selected = fixedAudio[kind] || fixedAudio.destination;
-  const audio = document.querySelector(selected.selector);
-  audio.currentTime = 0;
-  const playing = audio.play();
-  if (playing && typeof playing.catch === "function") {
-    playing.catch(() => speak(selected.text));
-  }
+  const selected = FIXED_AUDIO[kind] || FIXED_AUDIO.destination;
+  playClip(selected.file).then((played) => {
+    if (!played) speak(selected.text);   // 녹음을 못 받으면 합성으로 읽는다
+  });
 }
 
 function setScene(key, options) {
@@ -1533,7 +1651,7 @@ async function startAutoDemo() {
   setScene(2, { autoWalk: false });
   if (!await waitForAutoDemo(
     runId,
-    audioDurationMs("#destinationAudio", AUTO_DEMO_DELAYS_MS.destinationFallback)
+    clipDurationMs("destination", AUTO_DEMO_DELAYS_MS.destinationFallback)
   )) return;
 
   const outboundCompleted = waitForAutoWalk(runId);
@@ -1541,7 +1659,7 @@ async function startAutoDemo() {
   if (!await outboundCompleted) return;
   if (!await waitForAutoDemo(
     runId,
-    audioDurationMs("#arrivalAudio", AUTO_DEMO_DELAYS_MS.arrivalFallback)
+    clipDurationMs("arrival", AUTO_DEMO_DELAYS_MS.arrivalFallback)
   )) return;
 
   setScene(5, { autoWalk: false });
@@ -1558,7 +1676,7 @@ async function startAutoDemo() {
   if (!await returnCompleted) return;
   if (!await waitForAutoDemo(
     runId,
-    audioDurationMs("#basecampAudio", AUTO_DEMO_DELAYS_MS.basecampArrival)
+    clipDurationMs("basecamp", AUTO_DEMO_DELAYS_MS.basecampArrival)
   )) return;
 
   setNight(true, true);
@@ -1750,6 +1868,7 @@ async function startAutoplay() {
 }
 
 window.addEventListener("resize", draw);
+warmFixedAudio();
 setNight(false);
 if (LIVE_MODE) {
   // 촬영 시나리오를 쓰지 않는다. 그림틀만 같고 값은 전부 /api/device 에서 온다.

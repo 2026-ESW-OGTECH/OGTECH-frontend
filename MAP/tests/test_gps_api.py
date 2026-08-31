@@ -316,10 +316,9 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertIn("CO 농도", html)
         self.assertIn("0 ppm", html)
         self.assertIn("목적지에 도착하였습니다.", html)
-        self.assertIn("destination_arrived.wav", html)
-        self.assertNotIn("daylight_detail.wav", html)
-        self.assertIn('id="basecampAudio"', html)
-        self.assertNotIn('id="warningAudio"', html)
+        # 재생은 Web Audio 가 한다. <audio> 요소는 두지 않는다 — 젯슨(L4T aarch64)
+        # Firefox 는 미디어 디코더가 죽어 있어 <audio> 로는 소리가 나지 않는다.
+        self.assertNotIn("<audio", html)
         self.assertNotIn("dialogueCard", html)
         self.assertNotIn("나 목마른데 물 마실 곳 찾아줘", html)
 
@@ -332,6 +331,11 @@ class GpsApiIntegrationTest(unittest.TestCase):
             connection.close()
         self.assertEqual(response.status, 200)
         self.assertIn('timeZone: "Asia/Seoul"', video_app)
+        # 고정 녹음 세 개는 그리기 코드가 파일 이름으로 직접 받아 재생한다.
+        self.assertIn('file: "destination_set.wav"', video_app)
+        self.assertIn('file: "destination_arrived.wav"', video_app)
+        self.assertIn('file: "return_to_base.wav"', video_app)
+        self.assertNotIn("daylight_detail.wav", video_app)
         self.assertIn('second: "2-digit"', video_app)
         self.assertIn("speedMps: 1.4", video_app)
         self.assertIn("function saveCheckpoint()", video_app)
@@ -536,6 +540,14 @@ class GpsApiIntegrationTest(unittest.TestCase):
         # 브라우저 TTS 는 쓰지 않는다(젯슨 Firefox 에서 espeak 남성으로 떨어진다).
         self.assertNotIn("SpeechSynthesisUtterance", app)
         self.assertNotIn("window.speechSynthesis", app)
+        # 재생은 Web Audio 로 하고 WAV 는 우리가 직접 뜯는다. 2026-08-31 실측:
+        # 젯슨 Firefox 는 <audio> 가 MEDIA_ERR_DECODE, decodeAudioData 가
+        # EncodingError 로 떨어진다(오실레이터는 정상 → 출력이 아니라 디코더 문제).
+        self.assertNotIn("new Audio(", app)
+        self.assertNotIn("ctx.decodeAudioData(", app)
+        self.assertIn("function decodeWav(", app)
+        self.assertIn("ctx.createBuffer(channels, frames, rate)", app)
+        self.assertIn("createBufferSource", app)
         # 토스트·경고 배너·도착 카드가 모두 음성을 탄다.
         self.assertIn("/api/tts?text=", app)
         self.assertIn("speak(message);", app)

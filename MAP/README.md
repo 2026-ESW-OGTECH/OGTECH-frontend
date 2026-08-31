@@ -60,6 +60,13 @@ Jetson Xavier NX에서 STM32H7A3ZI-Q (Nucleo-H7A3ZI-Q) 센서 허브의 GPS·온
   모델은 프로세스에 상주하고 문장은 캐시한다. 서버 기동 시 고정 문구를 미리 합성한다
   `[실측 2026-08-30 Jetson: 예열 전 첫 호출 5.9 s, 예열 후 0.34 s, 새 문장 0.78 s]`.
   모델이 없으면 오류 대신 `{"available": false}` 를 돌려주고 화면은 글자만 보여 준다.
+- **재생은 Web Audio 로 하고 WAV 는 화면 코드가 직접 뜯는다**(`video_app.js` `decodeWav`).
+  젯슨(L4T aarch64) Firefox 는 미디어 디코더가 죽어 있어 `<audio>` 는
+  `MEDIA_ERR_DECODE`, `decodeAudioData` 는 `EncodingError` 로 떨어진다 — 오류 이벤트만
+  나고 소리는 안 난다. 오실레이터는 정상 재생되므로 고장난 것은 출력이 아니라 디코더뿐이다
+  `[실측 2026-08-31 Jetson: 싱크 모니터 녹음 RMS 로 확인]`. 그래서 화면이 쓰는 음성은
+  녹음도 합성도 전부 22.05 kHz 16 bit PCM WAV 로 맞추고 `decodeWav` 가 AudioBuffer 를
+  만든다. **다른 포맷(OGG·MP3)으로 바꾸면 젯슨에서 소리가 사라진다.**
 
 ## 실행
 
