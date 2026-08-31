@@ -50,6 +50,14 @@ Jetson Xavier NX에서 STM32H7A3ZI-Q (Nucleo-H7A3ZI-Q) 센서 허브의 GPS·온
 - STM32 `PA0` 전원, `PA1` 체크포인트, `PA4` 음성 버튼 edge를 좌표 없이 검증·전달
 - 전원 버튼 2초 길게 누름 뒤 로컬 정상 종료 ACK와 STM32 `PC9` Jetson 전원 gate 제어
 - CO 경보 시 브라우저 보조음. 1차 물리 경보는 STM32 단독 출력
+- **화면에 뜨는 문구는 같은 목소리로 읽어 준다.** `/api/tts?text=...` 가 sherpa-onnx
+  VITS(mimic3 ko_KO kss_low, 여성 단일 화자)로 합성해 WAV 를 돌려준다. 발화
+  파라미터는 Co-LLM 과 같은 값이다 — `length_scale 1.22`(0.9배속), `noise_scale 0.4`,
+  `noise_scale_w 0.6`. 브라우저 `speechSynthesis` 는 쓰지 않는다(Jetson Firefox 에서
+  espeak 남성 기계음으로 떨어져 제품 음성과 목소리가 갈린다).
+  모델은 프로세스에 상주하고 문장은 캐시한다. 서버 기동 시 고정 문구를 미리 합성한다
+  `[실측 2026-08-30 Jetson: 예열 전 첫 호출 5.9 s, 예열 후 0.34 s, 새 문장 0.78 s]`.
+  모델이 없으면 오류 대신 `{"available": false}` 를 돌려주고 화면은 글자만 보여 준다.
 
 ## 실행
 

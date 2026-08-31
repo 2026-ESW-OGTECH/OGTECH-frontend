@@ -1,9 +1,14 @@
-/* OGTECH 건국대학교 시연 영상 전용 MAP — 1024x600
+/* OGTECH 1024x600 화면 — 제품(/product/)과 촬영(/video/)이 함께 쓴다.
  *
- * 기본 상태의 현재 위치·센서 값은 촬영용 합성값이다. 그래서 녹색 LIVE 상태를 쓰지 않는다.
- * URL 파라미터 `?live=1`을 붙이면 온·습도·CO 칸만 app.py의 /api/device(STM32 텔레메트리)
- * 실값으로 바뀌고 유효한 CO는 녹색 LIVE로 표시한다. 위치·경로는 여전히 시나리오다.
- * `?autoplay=1`(1회) 또는 `?autoplay=loop`(반복)는 로드 직후 `A` 키와 같은 원테이크를 시작한다.
+ * 두 화면의 디자인은 예외 없이 같아야 하므로 마크업(video.html)·CSS(video_styles.css)·
+ * 그리기 코드를 한 벌만 두고, 이 파일이 경로로 데이터 소스만 가른다(LIVE_MODE).
+ *
+ *   /product/  좌표·경로·방위·거리·도착·일출몰을 /api/device 실측으로 채운다.
+ *              하단 버튼은 /api/waypoints 로 실제 저장하고, /api/voice/events 를 구독한다.
+ *              값이 없으면 없다고 적는다 — 마지막 좌표를 현재인 척하지 않는다.
+ *   /video/    좌표·경로는 촬영 시나리오 고정값이고 장면 전환·자동 재생이 붙는다.
+ *              `?live=1` 이면 온·습도·CO 만 실측, `?autoplay=1|loop` 는 자동 재생.
+ *
  * 공개 POI와 보행망은 오프라인 파일이며, 경로·방위·거리·경로 이탈 거리는 아래 코드와
  * map_engine이 계산한다. LLM은 좌표나 숫자를 생성하지 않는다.
  */
@@ -862,8 +867,11 @@ function setRouteAlert(current) {
     document.querySelector("#routeAlertText").textContent =
       `경로 이탈 · ${Math.round(deviation.offsetM)} m · 현재 위치와 경로를 확인하세요`;
     routeAlert.hidden = false;
+    // 거리는 계속 변하므로 음성은 거리를 빼고 한 번만 읽는다.
+    announce("routeAlert", "경로를 벗어났습니다. 현재 위치와 경로를 확인하세요.");
   } else {
     routeAlert.hidden = true;
+    announce("routeAlert", "");
   }
   document.querySelector("#mapPanel").classList.toggle("has-route-alert", !routeAlert.hidden);
 }
@@ -1082,6 +1090,7 @@ function showToast(message, duration) {
   }
   toast.textContent = message;
   toast.hidden = false;
+  speak(message);
   toastTimer = window.setTimeout(() => { toast.hidden = true; }, duration || 2600);
 }
 
@@ -1150,6 +1159,7 @@ function render() {
     alertBox.hidden = true;
   }
   document.querySelector("#mapPanel").classList.toggle("has-alert", Boolean(alertText));
+  if (LIVE_MODE) announce("alert", alertText);
   const arrivalCard = document.querySelector("#arrivalCard");
   const arrivalText = currentArrivalText();
   if (arrivalText) {
@@ -1158,6 +1168,7 @@ function render() {
   } else {
     arrivalCard.hidden = true;
   }
+  if (LIVE_MODE) announce("arrival", arrivalText);
 
   const target = targetPoint();
   const readout = document.querySelector("#readout");
@@ -1254,24 +1265,71 @@ function stopWalk(keepPosition) {
   if (!keepPosition) walk.position = null;
 }
 
-function fallbackSpeech(text) {
-  if (!("speechSynthesis" in window)) return false;
-  const koreanVoice = window.speechSynthesis.getVoices().find((voice) =>
-    String(voice.lang).toLowerCase().startsWith("ko")
-  );
-  if (!koreanVoice) return false;
-  window.speechSynthesis.cancel();
-  const message = new SpeechSynthesisUtterance(text);
-  message.lang = "ko-KR";
-  message.voice = koreanVoice;
-  message.rate = 0.92;
-  window.speechSynthesis.speak(message);
-  return true;
+/* 화면에 뜬 문구는 전부 같은 목소리로 읽어 준다.
+ *
+ * 브라우저 speechSynthesis 는 쓰지 않는다 — Jetson Firefox 에서는 espeak 남성
+ * 기계음으로 떨어져 제품 음성(sherpa KSS 여성 0.9배속)과 목소리가 갈린다.
+ * 서버 /api/tts 가 같은 파라미터로 합성해 주고, 같은 문장은 서버가 캐시한다.
+ *
+ * 음성은 보조 수단이다. 합성이 안 되면 조용히 넘어가고 글자는 그대로 남는다. */
+const speech = {
+  audio: null,
+  objectUrl: "",
+  lastText: "",
+  lastAt: 0,
+  unavailable: false,   // 모델이 없는 환경에서 매번 요청하지 않는다
+};
+
+async function speak(text) {
+  const cleaned = String(text || "").trim();
+  if (!cleaned || speech.unavailable) return;
+  // 같은 문장이 연달아 렌더될 때 겹쳐 읽지 않는다.
+  const now = Date.now();
+  if (cleaned === speech.lastText && now - speech.lastAt < 6000) return;
+  speech.lastText = cleaned;
+  speech.lastAt = now;
+
+  let blob;
+  try {
+    // <audio src> 대신 fetch 로 받는다. 모델이 없는 개발 PC 에서 503 이 와도
+    // 콘솔에 리소스 오류를 남기지 않는다.
+    const response = await fetch(`/api/tts?text=${encodeURIComponent(cleaned)}`);
+    if (!response.ok) return;
+    // 음성이 없는 장치는 JSON 으로 그 사실을 알려 준다. 그 뒤로는 요청하지 않는다.
+    if (!String(response.headers.get("Content-Type") || "").startsWith("audio/")) {
+      speech.unavailable = true;
+      return;
+    }
+    blob = await response.blob();
+  } catch (error) {
+    return;  // 음성이 없어도 글자는 그대로 보인다
+  }
+
+  if (speech.audio) speech.audio.pause();
+  if (speech.objectUrl) URL.revokeObjectURL(speech.objectUrl);
+  speech.objectUrl = URL.createObjectURL(blob);
+  const audio = new Audio(speech.objectUrl);
+  speech.audio = audio;
+  const playing = audio.play();
+  if (playing && typeof playing.catch === "function") {
+    playing.catch(() => {});
+  }
+}
+
+/* 배너·카드처럼 render 마다 다시 그려지는 것은 문구가 바뀐 순간에만 읽는다.
+ * 촬영 화면의 목적지·도착·복귀는 미리 녹음한 WAV 가 따로 있으므로 겹치지 않게
+ * 제품 화면에서만 읽는다. 경로 이탈 경고는 녹음이 없어 두 화면 모두 읽는다. */
+const announced = { alert: "", arrival: "", routeAlert: "" };
+
+function announce(key, text) {
+  const value = String(text || "");
+  if (announced[key] === value) return;
+  announced[key] = value;
+  if (value) speak(value);
 }
 
 function playDaylightAudio() {
-  if (fallbackSpeech(daylightWarningText())) return;
-  showToast("한국어 TTS가 없어 일조 경고는 화면에만 표시합니다", 3200);
+  speak(daylightWarningText());
 }
 
 function playFixedAudio(kind) {
@@ -1298,7 +1356,7 @@ function playFixedAudio(kind) {
   audio.currentTime = 0;
   const playing = audio.play();
   if (playing && typeof playing.catch === "function") {
-    playing.catch(() => fallbackSpeech(selected.text));
+    playing.catch(() => speak(selected.text));
   }
 }
 

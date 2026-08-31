@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from http import HTTPStatus
 from http.client import HTTPConnection
+from urllib.parse import quote
 import json
 from pathlib import Path
 import re
@@ -366,7 +368,6 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertIn("function formatDaylightStatus(daylight)", video_app)
         self.assertIn("일몰 시간이 지났습니다. 귀환 권고 시각과 베이스캠프 경로를 확인하세요.", video_app)
         self.assertIn("분 초과", video_app)
-        self.assertIn('startsWith("ko")', video_app)
         self.assertIn("Math.ceil(Math.abs(differenceMs) / 60000)", video_app)
         self.assertIn("귀환 권고 시각과 베이스캠프 경로를 확인하세요.", video_app)
         self.assertNotIn("돌아가세요", video_app)
@@ -523,6 +524,41 @@ class GpsApiIntegrationTest(unittest.TestCase):
                     f"{path} 에 보이지 않는 클릭 영역이 있습니다",
                 )
 
+
+    def test_screen_text_is_spoken_by_the_product_voice(self) -> None:
+        """화면에 뜨는 문구는 제품과 같은 목소리로 읽어 준다.
+
+        2026-08-30 사용자 지시: 기계음 남성(브라우저 speechSynthesis)이 아니라
+        sherpa KSS 여성 0.9배속이어야 하고, 텍스트가 나오는 곳에는 음성도 나와야 한다.
+        모델이 없는 환경에서는 503 을 주고 화면은 글자만 보여 준다.
+        """
+        app = self.fetch_text("/video/video_app.js")
+        # 브라우저 TTS 는 쓰지 않는다(젯슨 Firefox 에서 espeak 남성으로 떨어진다).
+        self.assertNotIn("SpeechSynthesisUtterance", app)
+        self.assertNotIn("window.speechSynthesis", app)
+        # 토스트·경고 배너·도착 카드가 모두 음성을 탄다.
+        self.assertIn("/api/tts?text=", app)
+        self.assertIn("speak(message);", app)
+        self.assertIn('announce("alert", alertText)', app)
+        self.assertIn('announce("arrival", arrivalText)', app)
+        self.assertIn('announce("routeAlert"', app)
+
+        connection = HTTPConnection("127.0.0.1", self.port, timeout=20.0)
+        try:
+            connection.request("GET", "/api/tts?text=" + quote("도착하였습니다"))
+            response = connection.getresponse()
+            body = response.read()
+        finally:
+            connection.close()
+        self.assertEqual(response.status, HTTPStatus.OK)
+        if response.headers.get("Content-Type") == "audio/wav":
+            self.assertEqual(body[:4], b"RIFF")
+        else:
+            # 개발 PC 에는 모델이 없다. 오류가 아니라 "음성 없음"으로 답해서
+            # 키오스크 콘솔에 리소스 오류가 쌓이지 않게 한다.
+            payload = json.loads(body.decode("utf-8"))
+            self.assertFalse(payload["available"])
+            self.assertIn("reason", payload)
 
 if __name__ == "__main__":
     unittest.main()

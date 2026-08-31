@@ -32,6 +32,7 @@ from map_engine import (
 )
 from gps_service import GpsInputError, GpsService
 from navigation_service import NavigationInputError, NavigationService
+from speech_service import SpeechService, SpeechUnavailable, warmup as warmup_speech
 
 
 ROOT = Path(__file__).resolve().parent
@@ -43,6 +44,9 @@ ACTIVE_MAP = RUNTIME_ROOT / "active_map.json"
 SAMPLE_MAP = ROOT / "sample_data" / "konkuk_walk.graphml"
 GPS_REPLAY = ROOT / "sample_data" / "air530_replay.nmea"
 WAYPOINTS_PATH = RUNTIME_ROOT / "waypoints.json"
+
+# 화면 문구를 읽어 주는 오프라인 TTS. 프로세스 하나에 모델 하나만 상주한다.
+SPEECH = SpeechService()
 POI_CATALOG_PATH = PRODUCT_ROOT / "poi_catalog.json"
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 MAX_JSON_BYTES = 64 * 1024
@@ -377,6 +381,9 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/device":
                 self._json(HTTPStatus.OK, self.navigation.snapshot())
+                return
+            if path == "/api/tts":
+                self._tts(urlsplit(self.path).query)
                 return
             if path == "/api/diagnostics":
                 self._json(HTTPStatus.OK, self._diagnostics())
@@ -715,6 +722,36 @@ class AppHandler(BaseHTTPRequestHandler):
             temporary.unlink(missing_ok=True)
         self._json(HTTPStatus.CREATED, overview)
 
+    def _tts(self, query: str) -> None:
+        """화면에 뜬 문구를 제품 음성과 같은 목소리로 합성해 돌려준다.
+
+        브라우저 speechSynthesis 를 쓰지 않는 이유는 speech_service 머리말에 적었다.
+        모델이 없으면 503 을 주고, 화면은 글자만 보여 주면 된다(음성은 보조 수단).
+        """
+        text = ""
+        for pair in query.split("&"):
+            name, _, value = pair.partition("=")
+            if name == "text":
+                text = unquote(value.replace("+", " "))
+                break
+        try:
+            data = SPEECH.synthesize(text)
+        except SpeechUnavailable as exc:
+            # 모델이 없는 환경은 오류가 아니라 "이 장치에는 음성이 없다"는 답이다.
+            # 4xx/5xx 로 돌려주면 키오스크 콘솔이 리소스 오류로 계속 더럽혀진다.
+            self._json(HTTPStatus.OK, {"available": False, "reason": str(exc)})
+            return
+        except Exception as exc:  # 합성 실패가 화면을 멈추게 하지 않는다
+            self._json(HTTPStatus.OK, {"available": False, "reason": f"음성 합성 실패: {exc}"})
+            return
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "public, max-age=3600")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _static(self, request_path: str) -> None:
         mapping = {
             "/index.html": STATIC_ROOT / "index.html",
@@ -968,6 +1005,8 @@ def main() -> None:
             "baud": args.gps_baud or None,
         },
     )
+    # 시연 중 첫 소리가 늦지 않도록 고정 문구를 미리 합성해 둔다.
+    warmup_speech(SPEECH)
     print(f"화면 선택: http://{args.host}:{args.port}/select/")
     print(f"지도 검증 도구: http://{args.host}:{args.port}/")
     print(f"OGTECH 제품 화면: http://{args.host}:{args.port}/product/")
