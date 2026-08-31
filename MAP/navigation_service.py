@@ -1078,13 +1078,25 @@ class NavigationService:
 
     @staticmethod
     def _alert(co: dict[str, Any], trail: dict[str, Any], sun: dict[str, Any]) -> dict[str, Any] | None:
-        if co.get("alarm") is True and not co.get("stale"):
+        # sound=True 인 경보는 Jetson 스피커가 소리를 낸다(Co-LLM device_monitor.py).
+        # 2026-08-31 STM32 부저를 걷어낸 뒤로 소리를 내는 곳은 여기 하나뿐이다.
+        stale = bool(co.get("stale"))
+        if co.get("alarm") is True and not stale:
             ppm = co.get("ppm")
             value = "—" if ppm is None else f"{float(ppm):.0f}"
             return {
                 "kind": "co_alarm",
                 "severity": "alarm",
-                "text": f"CO 경보 · {value} ppm · STM32 물리 경보 작동",
+                "text": f"CO 경보 · {value} ppm · 즉시 환기하고 대피하세요",
+                "sound": True,
+            }
+        if co.get("level") == "warning" and not stale:
+            ppm = co.get("ppm")
+            value = "—" if ppm is None else f"{float(ppm):.0f}"
+            return {
+                "kind": "co_warning",
+                "severity": "caution",
+                "text": f"CO 주의 · {value} ppm · 환기하고 상태를 확인하세요",
                 "sound": True,
             }
         if trail.get("status") == "off_trail":

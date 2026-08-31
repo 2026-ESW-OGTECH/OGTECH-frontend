@@ -539,7 +539,12 @@ class GpsApiIntegrationTest(unittest.TestCase):
         # 토스트·경고 배너·도착 카드가 모두 음성을 탄다.
         self.assertIn("/api/tts?text=", app)
         self.assertIn("speak(message);", app)
-        self.assertIn('announce("alert", alertText)', app)
+        # CO 경보만 예외 — 소리는 Jetson 데몬이 내고 화면은 글자만 띄운다(2026-08-31).
+        self.assertIn('announce("alert", live.alertSpoken ? alertText : "")', app)
+        self.assertIn('!String(alert.kind || "").startsWith("co_")', app)
+        # 배너는 서버가 주는 alert.text 를 쓴다 — alert.message 를 읽어 CO 경보에도
+        # 일조 경고를 띄우고 읽던 회귀를 막는다.
+        self.assertNotIn("alert.message", app)
         self.assertIn('announce("arrival", arrivalText)', app)
         self.assertIn('announce("routeAlert"', app)
         # 자동 시연이 합성 문장을 중간에 자르지 않는다(일조 경고는 남은 분이 들어가

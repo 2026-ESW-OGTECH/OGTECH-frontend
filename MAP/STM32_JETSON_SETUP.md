@@ -47,7 +47,6 @@ flowchart LR
   GPS["Air530 GNSS"] -->|"USART1 · 9600 8N1 · NMEA"| STM["STM32H7A3ZI-Q"]
   CO["ZE16B-CO"] -->|"USART2 · 9600 8N1 · 9바이트 프레임"| STM
   DHT["DHT11"] -->|"GPIO 단선 · 비트뱅잉"| STM
-  STM -->|"PB0 · HIGH=ON"| BUZ["부저"]
   STM -->|"PC9 · active-high"| GATE["Jetson 전원 MOSFET gate"]
   STM -->|"UART4 · 115200 8N1 · JSONL v1"| JETSON["Jetson Xavier NX · /dev/ttyTHS0"]
   STM -->|"USART3 · 115200 · 동일 출력 미러"| VCP["ST-LINK VCP · 사람 콘솔"]
@@ -55,8 +54,9 @@ flowchart LR
   API --> UI["Chromium /product/"]
 ```
 
-CO 판정과 부저 경보는 STM32에서 끝난다. Jetson 전원이 꺼져도(`GATE=OFF`) 계속 동작해야 한다.
-Jetson의 화면 경보음은 보조 출력일 뿐이다.
+CO **판정**은 STM32에서 끝난다. Jetson 전원이 꺼져도(`GATE=OFF`) 판정은 계속 돌고 경보는 latched로 남는다.
+**경보음은 Jetson 스피커가 낸다**(2026-08-31 부저 PB0 제거) — 그러므로 Jetson이 꺼져 있는 동안은
+소리가 나지 않고, 다시 켜져 텔레메트리를 받는 순간 울린다.
 
 ### 인터페이스 표
 
@@ -67,7 +67,6 @@ Jetson의 화면 경보음은 보조 출력일 뿐이다.
 | **UART4** | 115200 8N1, 송수신 | Jetson 40핀 `/dev/ttyTHS0` (PC10 TX/PC11 RX) | `cubemx/Core/` 대조본 |
 | USART3 | 115200 8N1, 송수신 | 사람 콘솔 미러 = ST-LINK VCP (PD8/PD9) | `cubemx/Core/` 대조본 |
 | GPIO 단선 | `GPIO_MODE_OUTPUT_OD` ↔ 입력 전환, DWT 마이크로초 지연 비트뱅잉 | DHT11 PA0 (외부 풀업 저항 필요) | `cubemx/Core/Inc/main.h` |
-| **PB0** | `GPIO_MODE_OUTPUT_PP`, 초기값 LOW, `HIGH=ON` | 부저 | 코드에 하드코딩 |
 | **PC9** | `GPIO_MODE_OUTPUT_PP`, 초기값 HIGH, active-high | Jetson 전원 MOSFET 게이트 | 코드에 하드코딩 |
 
 PB0·PC9는 드라이버가 직접 초기화하고, UART와 DHT11 핀은 `cubemx/Core/` 대조본에 기록했다.
@@ -132,18 +131,18 @@ PB0·PC9는 드라이버가 직접 초기화하고, UART와 DHT11 핀은 `cubemx
 판독 중 인터럽트는 막지 않는다. DWT LAR 잠금을 해제해 CYCCNT를 켜고, 카운터가 멈춘 경우에도
 HAL tick 2 ms 상한으로 각 대기 루프를 빠져나온다. 5바이트 체크섬이 맞지 않으면 `DHT11=ERROR`다.
 
-### 부저 — PB0
+### 경보음 — Jetson 스피커 (구 부저 PB0 제거)
 
-| 핀 | 출력 | 필수 구동 회로 |
-|---|---|---|
-| PB0 | 능동 부저 제어 (`HIGH=ON`) | NPN 또는 로직레벨 MOSFET + 게이트/베이스 저항 |
+2026-08-31부터 보드는 경보음을 내지 않는다. `co_alarm.c`는 판정만 하고, 소리는 텔레메트리를
+받은 Jetson이 USB 스피커로 낸다(`Co-LLM/scripts/device_monitor.py` — 경보음 + 음성 안내).
+PB0은 더 이상 쓰지 않으므로 다른 용도로 잡아도 된다.
 
-부저를 STM32 GPIO에 직접 물리지 않는다. 드라이버가 active-low면 펌웨어 극성을 바꾼 뒤
-무부하부터 검증한다.
-
-> **PB0는 Nucleo-144에서 LD1(녹색 LED)와 공유되는 핀이다** `[출처: 펌웨어 주석]`.
-> 부저 없이도 경보 상태를 눈으로 볼 수 있다는 뜻이지만, 외부 드라이버를 붙일 때는 보드 LED
-> 부하가 함께 걸린다는 점을 확인해야 한다 `[확인 필요]`.
+| 담당 | 하는 일 |
+|---|---|
+| STM32 `co_alarm` | 35/100/30 ppm 판정, latched 유지, 텔레메트리 `level`·`alarm` 송신 |
+| Jetson `gps_service`+`co_alarm.py` | `$SA1` CSV에는 경보 필드가 없어 ppm으로 같은 판정을 다시 만든다 |
+| Jetson `device_monitor.py` | 경보음(비프) + 음성 안내, 경보가 지속되면 반복 |
+| 키오스크 화면 | 경보 배너 표시. 소리는 내지 않는다(데몬과 겹치지 않게) |
 
 ### Jetson 전원 MOSFET 게이트 — PC9
 
@@ -214,17 +213,18 @@ UART4 또는 USART3로 수신하며 `\r` 또는 `\n`으로 종결한다. `strcmp
 주기 스트림은 **부팅 기본 ON**이다. Jetson의 `STREAM ON`이 유실돼도 텔레메트리는 계속 나온다.
 사람 콘솔(TeraTerm)로 시연할 때는 `STREAM OFF` 후 `STATUS`를 쓰면 읽기 편하다.
 
-`GATE OFF` → 부저 경보 확인 → `GATE ON`이 "Jetson이 꺼져 있어도 CO를 감시한다"는 이 작품의
-핵심 주장을 시연하는 최소 절차다.
+`GATE OFF` → CO 노출 → `GATE ON` 직후 스피커 경보 확인이 "Jetson이 꺼져 있어도 CO를 감시한다"는
+이 작품의 핵심 주장을 시연하는 최소 절차다(경보는 latched라 켜진 뒤에도 살아 있다). 꺼져 있는
+동안 소리로 확인할 방법은 없다 — 부저를 걷어낸 대가다.
 
 ## 4. CO 경보 규칙
 
 구현 완료(2026-08-20). **빌드·실장 검증은 `[미검증]`이다.**
 
-| 판정 | 조건 (코드값) | 부저 |
+| 판정 | 조건 (코드값) | 스피커 (Jetson) |
 |---|---|---|
-| ALARM | `co_ppm >= 100` 즉시. 예열 중에도 적용 | 200 ms 단속음 (`(tick/200)%2`) |
-| WARN | `co_ppm >= 35`이 **180000 ms(3분)** 연속 지속 | 2초마다 100 ms 비프 (`tick%2000 < 100`) |
+| ALARM | `co_ppm >= 100` 즉시. 예열 중에도 적용 | 경보음 3연타 + "일산화탄소 경보입니다…", 20초마다 반복 |
+| WARN | `co_ppm >= 35`이 **180000 ms(3분)** 연속 지속 | 주의음 2연타 + "일산화탄소 주의…", 60초마다 반복 |
 | 해제 | `co_ppm < 30`이 **30000 ms(30초)** 연속 지속 | 정지 |
 
 판정에 쓰는 세부 규칙:
@@ -235,10 +235,10 @@ UART4 또는 USART3로 수신하며 `\r` 또는 `\n`으로 종결한다. `strcmp
 - **예열 중 저농도는 무시한다.** 부팅 후 30초 동안은 100 ppm 즉시 경보만 살아 있다.
 - **WARN은 ALARM을 덮지 않는다.** `WARN` 승격은 현재 상태가 `NONE`일 때만 일어나므로,
   한 번 `ALARM`이 되면 30 ppm 미만 30초 해제 조건을 통과하기 전까지 내려가지 않는다.
-- 부저는 `HAL_GetTick()` 기반 논블로킹이라 경보 중에도 GPS·CO 수신과 명령 처리가 계속된다.
+- 판정은 `HAL_GetTick()` 기반 논블로킹이라 경보 중에도 GPS·CO 수신과 명령 처리가 계속된다.
 
-`GATE=OFF` 상태에서도 판정과 부저는 STM32에서 그대로 동작한다. 이것이 이 구조의 존재 이유이며,
-**Jetson 전원 OFF 상태 연속 20회 경보 시험**은 아직 남아 있다 `[미검증]`.
+`GATE=OFF` 상태에서도 판정은 STM32에서 그대로 동작한다(소리는 Jetson이 켜져야 난다). 이것이 이
+구조의 존재 이유이며, **Jetson 전원 OFF 상태 연속 20회 경보 시험**은 아직 남아 있다 `[미검증]`.
 
 ## 5. Jetson 연결과 실행
 
@@ -362,8 +362,8 @@ http://127.0.0.1:8790/               개발자 지도 변환 도구
 재생은 `/video/?live=1&autoplay=1`·`&autoplay=loop`. Firefox가 있으면
 전용 프로필 `~/.config/ogtech/firefox-kiosk`(`OGTECH_FIREFOX_PROFILE`로 변경)에 `user.js`를 써서
 정전 뒤 세션 복구·안전 모드·첫 실행 안내가 제품 화면을 가리지 않게 하고, `--kiosk --no-remote`로 실행한다.
-Chromium 폴백의 `--autoplay-policy=no-user-gesture-required`는 브라우저 CO 보조 경보음을 위해 사용한다
-`[출처: jetson/start-kiosk.sh]`. 물리 경보는 이 옵션과 무관하게 STM32에서 작동한다.
+Chromium 폴백의 `--autoplay-policy=no-user-gesture-required`는 화면 문구를 읽어 주는 음성을 위해 사용한다
+`[출처: jetson/start-kiosk.sh]`. CO 경보음은 브라우저가 아니라 `device_monitor.py`가 낸다.
 
 ### 5.6 저하 부팅 — 직렬 포트가 없어도 죽지 않는다
 
@@ -568,7 +568,7 @@ SET RTC UTC YYYY-MM-DDTHH:MM:SSZ   ← DS3231 연결 후
 | `GPS=NOT_FOUND`가 계속된다 | NMEA가 5초 이상 없다는 뜻이다. 안테나·야외 이동 → TX/RX 방향 → 보율 9600 |
 | `GPS=NO_FIX`에서 안 올라간다 | NMEA는 들어오는데 fix가 없는 상태다. `SAT` 수를 보며 하늘이 열린 곳에서 대기 |
 | `DHT11=ERROR`가 반복된다 | 데이터 선 **외부 풀업 저항**이 있는지(펌웨어는 내부 풀업을 쓰지 않는다) → 배선 길이 → 3.3 V 전원 |
-| 부저가 안 울린다 | PB0에 드라이버 회로가 있는지(직결 금지) → 드라이버 극성이 active-high인지 → LD1 녹색 LED가 같이 깜빡이는지로 신호 자체를 먼저 확인 |
+| CO 경보음이 안 난다 | 화면에 경보 배너가 떴는지(안 떴으면 판정 문제) → `systemctl --user status ogtech-device-monitor` → `journalctl --user -u ogtech-device-monitor -f`에 `알림 재생 실패`가 있는지 → `aplay -D "$OGTECH_SPK_DEVICE" ...`로 장치 직접 확인. 부저는 2026-08-31 제거했다 |
 | `GATE OFF`를 보내도 Jetson이 안 꺼진다 | `ACK GATE=OFF`가 왔는지 → PC9 MOSFET 게이트 회로 극성 → 명령 대소문자와 공백(`GATE OFF` 완전 일치) |
 | 명령이 `ERR UNKNOWN_CMD`로 돌아온다 | 대소문자·공백 확인(완전 일치). 아는 명령은 3절 명령 표의 11개가 전부다 |
 | 터미널이 JSON으로 가득해 읽기 어렵다 | 정상이다(기본 스트림 ON). `STREAM OFF` 후 `STATUS`로 사람용 상태 줄을 본다 |

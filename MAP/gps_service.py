@@ -13,6 +13,8 @@ import threading
 import time
 from typing import Any
 
+from co_alarm import CoAlarmJudge
+
 
 FIX_STALE_AFTER_S = 3.0
 SENSOR_STALE_AFTER_S = 3.0
@@ -409,6 +411,9 @@ def parse_stm32_ogt1(line: str) -> dict[str, Any] | None:
     gps_state 0=NOT_FOUND 1=NO_FIX 2=FIX. CSV에는 RTC·기압·전원·CO 경보·정확도가 없으므로
     해당 항목은 valid=False/None으로 두고 값을 만들어 내지 않는다.
     접두어가 다르면 None(JSON v1 경로로 넘긴다).
+
+    CO 경보(level·alarm)는 이 함수가 채우지 않는다 — 한 줄만 봐서는 지속 시간을 알 수 없다.
+    GpsService._apply_telemetry가 CoAlarmJudge로 판정해 덮어쓴다.
     """
 
     sentence = line.strip()
@@ -727,6 +732,9 @@ class GpsService:
         self._last_power: dict[str, Any] | None = None
         self._last_power_monotonic: float | None = None
         self._last_power_event_monotonic: float | None = None
+        # `$SA1`/`$OGT1` CSV에는 경보 필드가 없다. 부저를 걷어낸 뒤로 경보음은 Jetson이
+        # 내므로 판정도 여기서 한다(co_alarm.CoAlarmJudge, 임계는 펌웨어와 동일).
+        self._co_judge = CoAlarmJudge()
         self._state: dict[str, Any] = {
             "mode": mode,
             "source": mode if mode != "off" else "none",
@@ -1202,6 +1210,16 @@ class GpsService:
         self._last_co = dict(telemetry["co"])
         self._last_co["device_age_s"] = self._last_co.pop("age_s") or 0.0
         self._last_co_monotonic = now
+        if self._state["telemetry_protocol"] == "ogt1":
+            # CSV는 ppm만 준다. 경보 상태는 Jetson이 만들고, 그 값으로 스피커가 울린다.
+            level = self._co_judge.update(
+                now,
+                valid=self._last_co.get("valid") is True,
+                ppm=self._last_co.get("ppm"),
+            )
+            if level != "none":  # "none"이면 파서가 넣은 normal/unknown을 그대로 둔다
+                self._last_co["level"] = level
+            self._last_co["alarm"] = level == "alarm"
         self._last_power = dict(telemetry["power"])
         self._last_power["device_age_s"] = 0.0
         self._last_power_monotonic = now

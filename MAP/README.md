@@ -49,7 +49,9 @@ Jetson Xavier NX에서 STM32H7A3ZI-Q (Nucleo-H7A3ZI-Q) 센서 허브의 GPS·온
 - 목적지·베이스캠프·체크포인트 저장 API
 - STM32 `PA0` 전원, `PA1` 체크포인트, `PA4` 음성 버튼 edge를 좌표 없이 검증·전달
 - 전원 버튼 2초 길게 누름 뒤 로컬 정상 종료 ACK와 STM32 `PC9` Jetson 전원 gate 제어
-- CO 경보 시 브라우저 보조음. 1차 물리 경보는 STM32 단독 출력
+- CO 경보 판정(35 ppm 3분 · 100 ppm 즉시 · 30 ppm 30초 해제). `$SA1` CSV에는 경보 필드가 없어
+  `co_alarm.py`가 펌웨어와 같은 임계로 다시 판정한다. 경보음·음성은 Jetson 스피커가 내고
+  (`Co-LLM/scripts/device_monitor.py`) 화면은 배너만 띄운다 — 2026-08-31 STM32 부저 제거
 - **화면에 뜨는 문구는 같은 목소리로 읽어 준다.** `/api/tts?text=...` 가 sherpa-onnx
   VITS(mimic3 ko_KO kss_low, 여성 단일 화자)로 합성해 WAV 를 돌려준다. 발화
   파라미터는 Co-LLM 과 같은 값이다 — `length_scale 1.22`(0.9배속), `noise_scale 0.4`,

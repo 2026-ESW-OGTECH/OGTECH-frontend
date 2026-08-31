@@ -164,6 +164,7 @@ const live = {
   basecamp: null,
   sun: null,
   alertText: null,
+  alertSpoken: false,  // CO 경보는 화면이 읽지 않는다(스피커는 Jetson 데몬이 낸다)
   arrivalText: null,
   selecting: false,
   lastVoiceSequence: 0,
@@ -796,10 +797,16 @@ function applyLiveNavigation(device) {
 
   live.sun = device.sun || null;
 
+  /* 서버가 주는 필드는 alert.text 다(navigation_service._alert). 없는 message 필드를
+   * 읽던 종전 코드는 CO 경보에도 일조 경고 문구를 띄우고 읽었다. */
   const alert = device.alert;
   live.alertText = alert
-    ? (alert.message || daylightWarningText())
+    ? (alert.text || daylightWarningText())
     : null;
+  /* CO 경보음과 음성은 Jetson 데몬(Co-LLM device_monitor.py)이 스피커로 낸다.
+   * 화면까지 읽으면 같은 경보를 두 번 말하고, 브라우저(pulse)와 데몬(aplay)이
+   * 같은 순간에 같은 장치를 잡는다. 글자는 그대로 두고 소리만 데몬에 맡긴다. */
+  live.alertSpoken = Boolean(alert) && !String(alert.kind || "").startsWith("co_");
 
   const arrival = navigation.arrival || {};
   live.arrivalText = arrival.arrived === true
@@ -821,6 +828,7 @@ function markLiveDisconnected() {
     live.route = null;
     live.routeInfo = null;
     live.alertText = null;
+    live.alertSpoken = false;
     live.arrivalText = null;
   }
   render();
@@ -1159,7 +1167,7 @@ function render() {
     alertBox.hidden = true;
   }
   document.querySelector("#mapPanel").classList.toggle("has-alert", Boolean(alertText));
-  if (LIVE_MODE) announce("alert", alertText);
+  if (LIVE_MODE) announce("alert", live.alertSpoken ? alertText : "");
   const arrivalCard = document.querySelector("#arrivalCard");
   const arrivalText = currentArrivalText();
   if (arrivalText) {
