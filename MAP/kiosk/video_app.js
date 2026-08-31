@@ -804,8 +804,9 @@ function applyLiveNavigation(device) {
     ? (alert.text || daylightWarningText())
     : null;
   /* CO 경보음과 음성은 Jetson 데몬(Co-LLM device_monitor.py)이 스피커로 낸다.
-   * 화면까지 읽으면 같은 경보를 두 번 말하고, 브라우저(pulse)와 데몬(aplay)이
-   * 같은 순간에 같은 장치를 잡는다. 글자는 그대로 두고 소리만 데몬에 맡긴다. */
+   * 화면까지 읽으면 같은 경보를 두 번 말한다. 게다가 데몬의 OGTECH_SPK_DEVICE 가
+   * pulse 가 아니라 plughw 직접 접근이면(config.py 기본값) 브라우저가 스피커를
+   * 쥔 사이 aplay 가 실패한다. 글자는 그대로 두고 소리는 데몬에 맡긴다. */
   live.alertSpoken = Boolean(alert) && !String(alert.kind || "").startsWith("co_");
 
   const arrival = navigation.arrival || {};
