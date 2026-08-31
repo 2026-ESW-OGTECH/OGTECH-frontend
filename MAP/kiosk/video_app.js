@@ -1332,6 +1332,16 @@ function playDaylightAudio() {
   speak(daylightWarningText());
 }
 
+/* 지금 읽고 있는 문장의 남은 길이(ms). 자동 시연이 문장 중간에 다음 장면으로
+ * 넘어가 음성이 잘리지 않게 쓴다. 값이 이상하면 시연이 멈추지 않도록 상한을 둔다. */
+function speechRemainingMs() {
+  const audio = speech.audio;
+  if (!audio || audio.paused || audio.ended) return 0;
+  const remaining = (Number(audio.duration) - Number(audio.currentTime)) * 1000;
+  if (!Number.isFinite(remaining) || remaining <= 0) return 0;
+  return Math.min(8000, Math.round(remaining));
+}
+
 function playFixedAudio(kind) {
   if (kind === "warning" || kind === "daylightDetail") {
     playDaylightAudio();
@@ -1527,6 +1537,9 @@ async function startAutoDemo() {
 
   setScene(5, { autoWalk: false });
   if (!await waitForAutoDemo(runId, AUTO_DEMO_DELAYS_MS.warningFallback)) return;
+  // 일조 경고는 합성 문장이라 길이가 그때그때 다르다(해 지기까지 남은 분이 들어간다).
+  // 고정 대기(6.2 s)보다 길면 끝까지 들려주고 넘어간다 — 다음 장면 안내가 말을 자르지 않게.
+  if (!await waitForAutoDemo(runId, speechRemainingMs())) return;
 
   const returnCompleted = waitForAutoWalk(runId);
   showBasecampRoute();

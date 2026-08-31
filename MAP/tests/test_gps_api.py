@@ -542,6 +542,10 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertIn('announce("alert", alertText)', app)
         self.assertIn('announce("arrival", arrivalText)', app)
         self.assertIn('announce("routeAlert"', app)
+        # 자동 시연이 합성 문장을 중간에 자르지 않는다(일조 경고는 남은 분이 들어가
+        # 길이가 매번 달라진다). 고정 대기 뒤 남은 길이만큼 더 기다린다.
+        self.assertIn("function speechRemainingMs()", app)
+        self.assertIn("waitForAutoDemo(runId, speechRemainingMs())", app)
 
         connection = HTTPConnection("127.0.0.1", self.port, timeout=20.0)
         try:
