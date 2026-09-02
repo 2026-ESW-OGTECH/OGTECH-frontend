@@ -7,6 +7,10 @@ sherpa-onnx VITS(mimic3 ko_KO kss_low, 여성 단일 화자)를 인프로세스�
 발화 파라미터는 Co-LLM 과 같은 값을 쓴다(2026-08-30 사용자 청취 기준 0.9배속).
 sherpa-onnx VITS 는 speed != 1.0 이면 length_scale 을 1/speed 로 "대체"하므로
 속도는 length_scale 한 곳으로만 조절하고 speed 는 1.0 을 유지한다.
+
+크기도 Co-LLM 과 맞춘다. tts_pipeline.normalize_pcm16 과 같은 기준으로 피크를 0.82 로
+올린다 — 이걸 빼면 합성 음성이 녹음 클립(assets/audio/*.wav)보다 4 dB 가량 작아서
+같은 화면에서 소리 크기가 널뛴다(합성 원본 피크 실측 0.51, 녹음 0.82).
 """
 
 from __future__ import annotations
@@ -40,6 +44,9 @@ SPEECH_NOISE_SCALE = _env_float("OGTECH_SHERPA_TTS_NOISE_SCALE", 0.4)
 SPEECH_NOISE_SCALE_W = _env_float("OGTECH_SHERPA_TTS_NOISE_SCALE_W", 0.6)
 SPEECH_SID = int(_env_float("OGTECH_SHERPA_TTS_SID", 0))
 SPEECH_THREADS = int(_env_float("OGTECH_SHERPA_TTS_THREADS", 4))
+# Co-LLM config.TTS_TARGET_PEAK_RATIO / TTS_MAX_GAIN 과 같은 값.
+SPEECH_TARGET_PEAK_RATIO = _env_float("OGTECH_TTS_TARGET_PEAK_RATIO", 0.82)
+SPEECH_MAX_GAIN = _env_float("OGTECH_TTS_MAX_GAIN", 4.0)
 
 # 화면 문구는 몇십 개로 정해져 있어 캐시가 곧 전부 채워진다. 같은 문장을 다시
 # 읽을 때는 합성하지 않는다(Jetson 합성 0.6~1.6 s).
@@ -122,7 +129,20 @@ class SpeechService:
             return data
 
 
+def _peak_gain(samples) -> float:
+    """녹음 클립과 같은 피크로 올리는 배율. 무음이면 1.0 을 돌려준다."""
+    peak = 0.0
+    for value in samples:
+        magnitude = abs(float(value))
+        if magnitude > peak:
+            peak = magnitude
+    if peak <= 0.0:
+        return 1.0
+    return min(SPEECH_MAX_GAIN, SPEECH_TARGET_PEAK_RATIO / peak)
+
+
 def _pcm16_wav(samples, sample_rate: int) -> bytes:
+    gain = _peak_gain(samples)
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as handle:
         handle.setnchannels(1)
@@ -130,7 +150,8 @@ def _pcm16_wav(samples, sample_rate: int) -> bytes:
         handle.setframerate(int(sample_rate))
         frames = bytearray()
         for value in samples:
-            clipped = -1.0 if value < -1.0 else (1.0 if value > 1.0 else float(value))
+            amplified = float(value) * gain
+            clipped = -1.0 if amplified < -1.0 else (1.0 if amplified > 1.0 else amplified)
             frames += int(clipped * 32767.0).to_bytes(2, "little", signed=True)
         handle.writeframes(bytes(frames))
     return buffer.getvalue()

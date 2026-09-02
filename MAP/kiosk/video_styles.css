@@ -126,8 +126,13 @@
   font-size: 20px;
 }
 
-.director > p:last-child {
-  margin-bottom: 0;
+/* 장면 목록 아래 안내 문단은 모두 같은 크기로 둔다(촬영 프레임 밖 패널). */
+.director ol ~ p {
   font-size: 14px;
   line-height: 1.4;
 }
+
+.director > p:last-child { margin-bottom: 0; }
+
+.director-answers { color: var(--text); }
+.director-voice { color: var(--amber); }

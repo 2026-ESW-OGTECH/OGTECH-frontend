@@ -145,6 +145,8 @@ const state = {
   scene: SCENES[1],
   night: false,
   checkpoint: null,
+  // 베이스캠프는 눌러서 등록하기 전에는 지도에 없다. 화면을 켜자마자 등록된 척하지 않는다.
+  basecampRegistered: false,
   destinationSelecting: false,
   daylightAlertSnapshot: null,
   environment: { ...SCENARIO_ENVIRONMENT },
@@ -505,6 +507,15 @@ function drawMapLabel(point, label, projector, color, yOffset) {
   context.restore();
 }
 
+const MARKER_LABEL_FONT = "800 20px 'Malgun Gothic', sans-serif";
+const MARKER_LABEL_LINE_PX = 24;
+/* 같은 자리에 마커가 겹치면(현재 위치를 그대로 체크포인트·베이스캠프로 저장한 경우)
+ * 글자가 서로 위에 찍혀 읽을 수 없다. 마커 모양은 그리는 순서대로 그대로 쌓고,
+ * 글자만 모아 두었다가 아래 순서로 자리를 잡는다 — 현재 위치가 제 자리를 갖고
+ * 겹치는 것만 한 줄씩 위로 올라간다. */
+const MARKER_LABEL_ORDER = { "현재": 0, "목적지": 1, "체크포인트": 2, "BASE CAMP": 3 };
+const markerLabels = [];
+
 function drawMarker(point, label, color, projector, shape) {
   if (!point) return;
   const [x, y] = projector.toScreen(point.lon, point.lat);
@@ -526,14 +537,40 @@ function drawMarker(point, label, color, projector, shape) {
   }
   context.fill();
   context.stroke();
-  context.font = "800 20px 'Malgun Gothic', sans-serif";
-  context.textAlign = "center";
-  context.lineWidth = 5;
-  context.strokeStyle = cssVar("--map-bg");
-  context.strokeText(label, 0, -22);
-  context.fillStyle = color;
-  context.fillText(label, 0, -22);
   context.restore();
+  markerLabels.push({
+    x, y, label, color,
+    order: MARKER_LABEL_ORDER[label] !== undefined ? MARKER_LABEL_ORDER[label] : 9,
+  });
+}
+
+function drawMarkerLabels() {
+  const placed = [];
+  context.save();
+  context.font = MARKER_LABEL_FONT;
+  context.textAlign = "center";
+  markerLabels
+    .slice()
+    .sort((left, right) => left.order - right.order)
+    .forEach((item) => {
+      const width = context.measureText(item.label).width;
+      let y = item.y - 22;
+      for (let guard = 0; guard < 6; guard += 1) {
+        const clash = placed.some((box) =>
+          Math.abs(box.x - item.x) < (box.width + width) / 2 + 6
+          && Math.abs(box.y - y) < 22);
+        if (!clash) break;
+        y -= MARKER_LABEL_LINE_PX;
+      }
+      placed.push({ x: item.x, y, width });
+      context.lineWidth = 5;
+      context.strokeStyle = cssVar("--map-bg");
+      context.strokeText(item.label, item.x, y);
+      context.fillStyle = item.color;
+      context.fillText(item.label, item.x, y);
+    });
+  context.restore();
+  markerLabels.length = 0;
 }
 
 function drawAccuracyRing(point, projector) {
@@ -652,7 +689,10 @@ function draw() {
   });
 
   drawNorthArrow(projector);
-  const basecamp = LIVE_MODE ? live.basecamp : state.map.basecamp;
+  markerLabels.length = 0;
+  const basecamp = LIVE_MODE
+    ? live.basecamp
+    : (state.basecampRegistered ? state.map.basecamp : null);
   if (basecamp) drawMarker(basecamp, "BASE CAMP", cssVar("--amber"), projector, "triangle");
 
   const goal = targetPoint();
@@ -675,6 +715,7 @@ function draw() {
     drawAccuracyRing(current, projector);
     drawMarker(current, "현재", cssVar("--amber"), projector, "circle");
   }
+  drawMarkerLabels();
   updateScaleBar(projector);
 }
 
@@ -1042,12 +1083,17 @@ function daylightWarningText() {
   return `해 지기까지 ${remainingMinutes}분 남았습니다. 귀환 권고 시각과 베이스캠프 경로를 확인하세요.`;
 }
 
-function formatDaylightRemaining(minutes) {
+// 계기판 표기와 음성 답변이 같은 숫자를 쓰도록 길이 표현을 한 곳에서 만든다.
+function spokenDaylightRemaining(minutes) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  if (hours > 0 && rest === 0) return `${hours}시간 남음`;
-  if (hours > 0) return `${hours}시간 ${rest}분 남음`;
-  return `${rest}분 남음`;
+  if (hours > 0 && rest === 0) return `${hours}시간`;
+  if (hours > 0) return `${hours}시간 ${rest}분`;
+  return `${rest}분`;
+}
+
+function formatDaylightRemaining(minutes) {
+  return `${spokenDaylightRemaining(minutes)} 남음`;
 }
 
 function formatDaylightStatus(daylight) {
@@ -1311,7 +1357,18 @@ const speech = {
   lastAt: 0,
   unavailable: false,   // 모델이 없는 환경에서 매번 요청하지 않는다
   clips: new Map(),     // 고정 음성은 한 번만 받아서 디코딩해 둔다
+  texts: [],            // 합성해 둔 문장. clips 와 함께 오래된 것부터 버린다
 };
+
+// 합성해 둘 문장 수. 값이 바뀌면 문장도 바뀌므로 무한정 쌓이지 않게 막는다.
+const SPEECH_TEXT_CACHE_MAX = 24;
+
+// 눌렀을 때 바로 나와야 하는 고정 문구. 화면이 뜨자마자 합성해 둔다.
+const WARM_SPEECH_PHRASES = [
+  "현재 위치를 체크포인트로 저장했습니다.",
+  "베이스캠프가 등록되었습니다.",
+  "베이스캠프 복귀 경로가 설정되었습니다.",
+];
 
 function audioContext() {
   const Ctor = window.AudioContext || window.webkitAudioContext;
@@ -1422,6 +1479,7 @@ async function playClip(file) {
 /* 장면이 바뀔 때 받아오느라 늦지 않게 미리 디코딩해 둔다. */
 function warmFixedAudio() {
   if (!audioContext()) return;
+  WARM_SPEECH_PHRASES.forEach((phrase) => prefetchSpeech(phrase));
   Object.values(FIXED_AUDIO).forEach(async (entry) => {
     if (speech.clips.has(entry.file)) return;
     const ctx = audioContext();
@@ -1435,6 +1493,49 @@ function warmFixedAudio() {
   });
 }
 
+/* 합성 음성이 왜 안 나오는지 촬영 보조 패널에 적는다. 정적 파일 서버(Live Server 등)로
+ * 띄우면 /api/tts 가 없어 글자만 뜨고 소리는 없다 — 녹음 WAV 만 들리니 원인을 알기 어렵다. */
+function noteVoiceStatus(text) {
+  const line = document.querySelector("#directorVoice");
+  if (line && line.textContent !== text) line.textContent = text;
+}
+
+/* 문장을 미리 합성해 둔다. 젯슨 합성은 0.6~1.6 s 라 물어본 뒤에 만들기 시작하면
+ * 답이 한 박자 늦는다. 화면에 뜬 값이 바뀔 때마다 답변 문장을 미리 받아 두면
+ * 실제로 물어본 순간에는 받아 둔 것을 그대로 재생한다. */
+async function prefetchSpeech(text) {
+  const cleaned = String(text || "").trim();
+  if (!cleaned || speech.unavailable) return null;
+  const cached = speech.clips.get(cleaned);
+  if (cached) return cached;
+  const ctx = audioContext();
+  if (!ctx) return null;
+  try {
+    // 모델이 없는 개발 PC 에서 콘솔에 리소스 오류를 남기지 않도록 fetch 로 받는다.
+    const response = await fetch(`/api/tts?text=${encodeURIComponent(cleaned)}`);
+    if (!response.ok) {
+      noteVoiceStatus(`합성 음성 없음: /api/tts ${response.status} — python3 app.py 로 띄운 화면에서만 합성 음성이 나온다`);
+      return null;
+    }
+    // 음성이 없는 장치는 JSON 으로 그 사실을 알려 준다. 그 뒤로는 요청하지 않는다.
+    if (!String(response.headers.get("Content-Type") || "").startsWith("audio/")) {
+      speech.unavailable = true;
+      noteVoiceStatus("합성 음성 없음: 서버에 sherpa-onnx 모델이 없다(녹음 WAV 만 재생)");
+      return null;
+    }
+    const buffer = decodeWav(ctx, await response.arrayBuffer());
+    noteVoiceStatus("합성 음성 사용 가능 (/api/tts)");
+    speech.clips.set(cleaned, buffer);
+    speech.texts.push(cleaned);
+    while (speech.texts.length > SPEECH_TEXT_CACHE_MAX) {
+      speech.clips.delete(speech.texts.shift());
+    }
+    return buffer;
+  } catch (error) {
+    return null;   // 음성이 없어도 글자는 그대로 보인다
+  }
+}
+
 async function speak(text) {
   const cleaned = String(text || "").trim();
   if (!cleaned || speech.unavailable) return;
@@ -1444,21 +1545,13 @@ async function speak(text) {
   speech.lastText = cleaned;
   speech.lastAt = now;
 
-  const ctx = audioContext();
-  if (!ctx) return;
-  try {
-    // 모델이 없는 개발 PC 에서 콘솔에 리소스 오류를 남기지 않도록 fetch 로 받는다.
-    const response = await fetch(`/api/tts?text=${encodeURIComponent(cleaned)}`);
-    if (!response.ok) return;
-    // 음성이 없는 장치는 JSON 으로 그 사실을 알려 준다. 그 뒤로는 요청하지 않는다.
-    if (!String(response.headers.get("Content-Type") || "").startsWith("audio/")) {
-      speech.unavailable = true;
-      return;
-    }
-    playBuffer(decodeWav(ctx, await response.arrayBuffer()));
-  } catch (error) {
-    /* 음성이 없어도 글자는 그대로 보인다 */
+  const ready = speech.clips.get(cleaned);
+  if (ready) {
+    playBuffer(ready);
+    return;
   }
+  const buffer = await prefetchSpeech(cleaned);
+  if (buffer) playBuffer(buffer);
 }
 
 /* 배너·카드처럼 render 마다 다시 그려지는 것은 문구가 바뀐 순간에만 읽는다.
@@ -1475,6 +1568,77 @@ function announce(key, text) {
 
 function playDaylightAudio() {
   speak(daylightWarningText());
+}
+
+/* 마이크로 물어본 것에 화면이 가진 값으로 답하는 문장들.
+ *
+ * 숫자는 계기판에 떠 있는 값을 그대로 읽는다 — 답변용으로 따로 만들어 내지 않고,
+ * 값이 아직 없으면 없다고 말한다. 문장 표현은 제품 음성(Co-LLM ogtech_core)이
+ * 쓰는 것과 같게 두어 화면과 스피커가 서로 다른 말을 하지 않게 한다. */
+function spokenDecimal(value, digits) {
+  return Number(value).toFixed(digits).replace(/\.0+$/, "");
+}
+
+function environmentAnswerText() {
+  const { temperatureC, humidityPct } = state.environment;
+  if (!Number.isFinite(temperatureC) || !Number.isFinite(humidityPct)) {
+    return "온도와 습도 값이 아직 들어오지 않았습니다.";
+  }
+  return `현장 센서 온도는 ${spokenDecimal(temperatureC, 1)}도, `
+    + `습도는 ${Math.round(humidityPct)}퍼센트입니다.`;
+}
+
+function coAnswerText() {
+  const co = state.co;
+  if (!co.valid || !Number.isFinite(co.ppm)) {
+    return co.warmingUp
+      ? "일산화탄소 센서는 예열 중입니다."
+      : "일산화탄소 값이 아직 들어오지 않았습니다.";
+  }
+  const level = co.alarm || co.level === "alarm"
+    ? "경보 수준입니다."
+    : co.level === "warning"
+      ? "주의 수준입니다."
+      : "정상 범위입니다.";
+  return `현재 일산화탄소 센서 계측값은 ${Math.round(co.ppm)}피피엠입니다. ${level}`;
+}
+
+function daylightAnswerText() {
+  const daylight = daylightForDisplay();
+  const minutes = Number(daylight.remainingMinutes);
+  if (!daylight.sunset || !Number.isFinite(minutes)) {
+    return "일몰까지 남은 시간을 아직 계산하지 못했습니다.";
+  }
+  return daylight.pastSunset
+    ? `일몰 후 ${spokenDaylightRemaining(minutes)} 지났습니다.`
+    : `일몰까지 ${spokenDaylightRemaining(minutes)} 남았습니다.`;
+}
+
+const VOICE_ANSWERS = {
+  environment: environmentAnswerText,
+  co: coAnswerText,
+  daylight: daylightAnswerText,
+};
+
+/* 값이 바뀌면 답변 문장도 바뀐다. 바뀔 때마다 미리 합성해 두어 물어본 순간에
+ * 기다리지 않게 한다. 이미 합성해 둔 문장이면 prefetchSpeech 가 바로 돌아온다. */
+function warmVoiceAnswers() {
+  if (LIVE_MODE || speech.unavailable) return;
+  Object.values(VOICE_ANSWERS).forEach((build) => prefetchSpeech(build()));
+}
+
+/* 물어본 것에 답한다. 같은 답을 화면에 띄우고 같은 목소리로 읽는다. */
+function answerAloud(kind) {
+  const build = VOICE_ANSWERS[kind];
+  if (!build) return;
+  const text = build();
+  const buffer = speech.clips.get(text);
+  // 답이 끝나기 전에 글자가 사라지지 않게 재생 길이에 맞춘다.
+  const duration = buffer
+    ? Math.ceil((buffer.duration + 1.2) * 1000)
+    : Math.max(3200, text.length * 150);
+  speech.lastText = "";   // 같은 것을 다시 물어보면 다시 읽는다
+  showToast(text, duration);
 }
 
 /* 지금 읽고 있는 문장의 남은 길이(ms). 자동 시연이 문장 중간에 다음 장면으로
@@ -1506,6 +1670,8 @@ function setScene(key, options) {
   state.routeDeviationDemo = false;
   state.sceneKey = sceneKey;
   state.scene = SCENES[sceneKey];
+  // 5~7 은 베이스캠프로 돌아가는 장면이다. 등록되지 않은 지점으로 경로를 그리지 않는다.
+  if (sceneKey >= 5) state.basecampRegistered = true;
   state.daylightAlertSnapshot = sceneKey === 5 ? todayDaylight() : null;
   showToast(state.scene.toast, sceneKey === 4 || sceneKey === 7 ? 4000 : 2600);
   render();
@@ -1618,6 +1784,7 @@ function routeFromCurrentToBasecamp(from) {
 
 function showBasecampRoute() {
   state.routeDeviationDemo = false;
+  state.basecampRegistered = true;
   const from = currentPoint();
   window.clearTimeout(walkStartTimer);
   stopWalk(false);
@@ -1643,6 +1810,9 @@ async function startAutoDemo() {
   const runId = autoDemo.runId;
   autoDemo.active = true;
 
+  // 반복 재생해도 매번 같은 그림에서 시작한다 — 베이스캠프는 아래 버튼이 등록한다.
+  state.checkpoint = null;
+  state.basecampRegistered = false;
   setNight(false, false);
   setScene(1, { audio: false, autoWalk: false });
   handleBasecampButton();
@@ -1695,14 +1865,25 @@ function toggleRouteDeviationDemo() {
 }
 
 function handleBasecampButton() {
-  if (state.sceneKey === 1) {
+  // 처음 누르는 순간 지금 서 있는 자리가 베이스캠프가 된다. 그 전에는 지도에 없다.
+  if (state.sceneKey === 1 || !state.basecampRegistered) {
     const current = currentPoint();
     state.map.basecamp = { lon: current.lon, lat: current.lat };
+    state.basecampRegistered = true;
     render();
     showToast("베이스캠프가 등록되었습니다.", 2800);
     return;
   }
   showBasecampRoute();
+}
+
+/* 처음 상태로 되돌린다. 저장한 체크포인트와 등록한 베이스캠프도 함께 지운다. */
+function resetDemo() {
+  cancelAutoDemo();
+  state.checkpoint = null;
+  state.basecampRegistered = false;
+  setNight(false, false);
+  setScene(1, { audio: false });
 }
 
 /* live 모드 조작. 저장·경로 선택은 전부 서버가 판정하고 화면은 결과만 받는다. */
@@ -1828,9 +2009,14 @@ if (!LIVE_MODE) window.addEventListener("keydown", (event) => {
   } else if (event.key === "t" || event.key === "T") {
     cancelAutoDemo();
     playFixedAudio("daylightDetail");
+  } else if (event.key === "w" || event.key === "W") {
+    answerAloud("environment");
+  } else if (event.key === "o" || event.key === "O") {
+    answerAloud("co");
+  } else if (event.key === "s" || event.key === "S") {
+    answerAloud("daylight");
   } else if (event.key === "r" || event.key === "R") {
-    cancelAutoDemo();
-    setScene(1, { audio: false });
+    resetDemo();
   } else if (event.key === "n" || event.key === "N") {
     cancelAutoDemo();
     setNight(!state.night, true);
@@ -1854,6 +2040,16 @@ window.ogtechVideoQa = Object.freeze({
     state.environment = { ...state.environment, ...next };
     render();
   },
+  setCo(next) {
+    state.co = { ...state.co, ...next };
+    render();
+  },
+  answerText: (kind) => (VOICE_ANSWERS[kind] ? VOICE_ANSWERS[kind]() : null),
+  basecampRegistered: () => state.basecampRegistered,
+  checkpoint: () => state.checkpoint,
+  handleBasecampButton,
+  saveCheckpoint,
+  resetDemo,
   toggleRouteDeviationDemo,
 });
 
@@ -1882,6 +2078,7 @@ if (LIVE_MODE) {
 window.setInterval(() => {
   updateSeoulClock();
   setDaylightGlance(state.scene);
+  warmVoiceAnswers();
 }, 1000);
 
 // URL 파라미터 반영. 두 함수 모두 파라미터가 없으면 스스로 아무것도 하지 않는다.

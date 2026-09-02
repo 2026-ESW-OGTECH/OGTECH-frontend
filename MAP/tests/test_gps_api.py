@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from array import array
 from http import HTTPStatus
 from http.client import HTTPConnection
 from urllib.parse import quote
@@ -580,6 +581,91 @@ class GpsApiIntegrationTest(unittest.TestCase):
             payload = json.loads(body.decode("utf-8"))
             self.assertFalse(payload["available"])
             self.assertIn("reason", payload)
+
+    def test_voice_answers_read_the_values_on_screen(self) -> None:
+        """음성 문답은 계기판에 떠 있는 값을 그대로 읽는다.
+
+        마이크로 물어본 것에 답하는 장면(2026-09-02 촬영 요청)이다. 답변 숫자는
+        화면이 이미 가진 값이어야 하고, 값이 없으면 없다고 답해야 한다 —
+        답변용 숫자를 따로 만들어 내면 화면과 음성이 서로 다른 말을 한다.
+        문장 표현은 제품 음성(Co-LLM ogtech_core)이 쓰는 것과 같다.
+        """
+        app = self.fetch_text("/video/video_app.js")
+        self.assertIn("function environmentAnswerText()", app)
+        self.assertIn("function coAnswerText()", app)
+        self.assertIn("function daylightAnswerText()", app)
+        self.assertIn("const VOICE_ANSWERS", app)
+        self.assertIn("function answerAloud(kind)", app)
+        # 제품 음성과 같은 표현
+        self.assertIn("현장 센서 온도는 ${spokenDecimal(temperatureC, 1)}도, ", app)
+        self.assertIn("습도는 ${Math.round(humidityPct)}퍼센트입니다.", app)
+        self.assertIn("현재 일산화탄소 센서 계측값은 ${Math.round(co.ppm)}피피엠입니다.", app)
+        self.assertIn("일몰까지 ${spokenDaylightRemaining(minutes)} 남았습니다.", app)
+        self.assertIn("일몰 후 ${spokenDaylightRemaining(minutes)} 지났습니다.", app)
+        # 값이 없으면 없다고 답한다(마지막 값이나 시나리오 값으로 메우지 않는다)
+        self.assertIn("온도와 습도 값이 아직 들어오지 않았습니다.", app)
+        self.assertIn("일산화탄소 값이 아직 들어오지 않았습니다.", app)
+        self.assertIn("일산화탄소 센서는 예열 중입니다.", app)
+        self.assertIn("일몰까지 남은 시간을 아직 계산하지 못했습니다.", app)
+        # 물어본 순간 기다리지 않도록 값이 바뀔 때마다 미리 합성해 둔다
+        self.assertIn("async function prefetchSpeech(text)", app)
+        self.assertIn("function warmVoiceAnswers()", app)
+        self.assertIn("warmVoiceAnswers();", app)
+        # 계기판 표기와 답변이 같은 숫자를 쓴다
+        self.assertIn("function spokenDaylightRemaining(minutes)", app)
+        self.assertIn("return `${spokenDaylightRemaining(minutes)} 남음`;", app)
+        # 촬영 화면 전용이다. 제품 화면의 답은 음성 계층이 만든다.
+        self.assertIn('event.key === "w" || event.key === "W"', app)
+        self.assertIn('event.key === "o" || event.key === "O"', app)
+        self.assertIn('event.key === "s" || event.key === "S"', app)
+        html = self.fetch_text("/video/")
+        self.assertIn("음성 문답", html)
+
+    def test_basecamp_appears_only_after_it_is_registered(self) -> None:
+        """베이스캠프는 버튼을 눌러 등록하기 전에는 지도에 없다.
+
+        2026-09-02 사용자 지시. 화면을 켜자마자 공학관 옆이 베이스캠프로 찍혀 있으면
+        등록하지 않은 지점을 등록된 것처럼 보여 주는 것이다. 체크포인트도 같다 —
+        누른 순간의 현재 위치가 저장 지점이 된다.
+        """
+        app = self.fetch_text("/video/video_app.js")
+        self.assertIn("basecampRegistered: false", app)
+        self.assertIn("state.basecampRegistered ? state.map.basecamp : null", app)
+        self.assertNotIn("const basecamp = LIVE_MODE ? live.basecamp : state.map.basecamp;", app)
+        self.assertIn("if (state.sceneKey === 1 || !state.basecampRegistered) {", app)
+        # 저장은 소리로도 알려 준다(showToast 가 같은 문구를 읽는다).
+        self.assertIn("현재 위치를 체크포인트로 저장했습니다.", app)
+        self.assertIn("베이스캠프가 등록되었습니다.", app)
+        self.assertIn("WARM_SPEECH_PHRASES", app)
+        # 처음으로 되돌리면 저장한 지점도 함께 지워진다.
+        self.assertIn("function resetDemo()", app)
+        self.assertIn("state.checkpoint = null;", app)
+        self.assertIn("state.basecampRegistered = false;", app)
+        self.assertIn('event.key === "r" || event.key === "R"', app)
+        self.assertIn("    resetDemo();", app)
+
+    def test_synthesized_speech_is_as_loud_as_the_recorded_clips(self) -> None:
+        """합성 음성 크기를 녹음 클립과 맞춘다.
+
+        정규화가 없으면 합성 원본 피크가 0.5 근처라 녹음 클립(0.82)보다 4 dB 가량
+        작다. 같은 화면에서 소리 크기가 널뛰지 않게 Co-LLM tts_pipeline 과 같은
+        기준(TTS_TARGET_PEAK_RATIO 0.82, 최대 배율 4.0)으로 올린다.
+        """
+        import speech_service
+
+        self.assertAlmostEqual(speech_service.SPEECH_TARGET_PEAK_RATIO, 0.82)
+        self.assertAlmostEqual(speech_service.SPEECH_MAX_GAIN, 4.0)
+        quiet = [0.0, 0.1, -0.205, 0.05]
+        data = speech_service._pcm16_wav(quiet, 22050)
+        samples = array("h")
+        samples.frombytes(data[44:])
+        self.assertAlmostEqual(max(abs(v) for v in samples) / 32768.0, 0.82, places=3)
+        # 무음을 증폭해 잡음을 만들지 않는다.
+        silent = speech_service._pcm16_wav([0.0, 0.0], 22050)
+        silent_samples = array("h")
+        silent_samples.frombytes(silent[44:])
+        self.assertEqual(max(abs(v) for v in silent_samples), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
