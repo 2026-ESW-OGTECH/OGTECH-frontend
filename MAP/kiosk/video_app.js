@@ -161,6 +161,7 @@ const live = {
   fix: null,           // {lon, lat} · fix 없으면 null
   target: null,        // 선택된 목적지/베이스캠프 좌표
   targetKind: null,    // "destination" | "basecamp"
+  serverDestinationStamp: undefined,   // 서버 목적지 saved_at. 첫 스냅샷은 기준값으로만 쓴다
   route: null,         // [[lon, lat], ...]
   routeInfo: null,     // {bearing_deg, distance_m, eta_min}
   basecamp: null,
@@ -803,7 +804,31 @@ function applyLiveDevice(device) {
   state.live.updatedAt = performance.now();
   state.live.updates += 1;
   if (LIVE_MODE) applyLiveNavigation(device);
+  else applyServerDestination(device);
   render();
+}
+
+/* 음성(오지야 데몬)이 지도 서버에 등록한 목적지를 촬영 화면에도 보여 준다.
+ * live=1 화면은 좌표·경로가 시나리오 상수라 서버 웨이포인트를 그리지 않는다. 그래서 페이지가 뜬 뒤
+ * 서버 목적지의 saved_at 이 바뀌면 2번 장면(음성 요청 → 일감호 설정)으로 넘겨 목적지와 경로를 그리고,
+ * 목적지가 지워지면 1번 장면으로 돌아간다. 첫 스냅샷은 기준값으로만 써서 이미 저장돼 있던 목적지는
+ * 그리지 않는다. 소리는 내지 않는다 — 음성 응답은 데몬이 스피커로 낸다. */
+function applyServerDestination(device) {
+  if (LIVE_MODE || !state.live.enabled) return;
+  const destination = (device.waypoints || {}).destination;
+  const stamp = destination && typeof destination.saved_at === "string" ? destination.saved_at : null;
+  if (live.serverDestinationStamp === undefined) {
+    live.serverDestinationStamp = stamp;
+    return;
+  }
+  if (stamp === live.serverDestinationStamp) return;
+  live.serverDestinationStamp = stamp;
+  if (stamp) {
+    setScene(2, { audio: false });
+    showToast("목적지를 지정했습니다.", 2400, { silent: true });
+  } else if (state.sceneKey === 2) {
+    setScene(1, { audio: false });
+  }
 }
 
 /* /api/device 의 좌표·경로·일조·도착 판정을 화면 상태로 옮긴다.
@@ -1136,7 +1161,7 @@ function setDaylightGlance(scene) {
     : LIVE_MODE ? "GPS 위치 필요" : "금일 일몰 계산 불가";
 }
 
-function showToast(message, duration) {
+function showToast(message, duration, options) {
   const toast = document.querySelector("#statusToast");
   window.clearTimeout(toastTimer);
   if (!message) {
@@ -1145,7 +1170,9 @@ function showToast(message, duration) {
   }
   toast.textContent = message;
   toast.hidden = false;
-  speak(message);
+  /* silent: 음성 명령의 결과처럼 다른 주체(음성 데몬)가 이미 읽어 주는 문구는 글자만 띄운다.
+   * 화면까지 읽으면 같은 말이 두 번 들린다(2026-09-02 실기). */
+  if (!options || !options.silent) speak(message);
   toastTimer = window.setTimeout(() => { toast.hidden = true; }, duration || 2600);
 }
 
@@ -1920,7 +1947,7 @@ function applyVoiceEvent(payload) {
   if (Number.isFinite(payload.sequence)) {
     live.lastVoiceSequence = Math.max(live.lastVoiceSequence, payload.sequence);
   }
-  if (payload.message) showToast(payload.message, 3800);
+  if (payload.message) showToast(payload.message, 3800, { silent: true });
   render();
 }
 
@@ -1979,7 +2006,17 @@ document.querySelector("#btnBasecamp").addEventListener("click", async () => {
   cancelAutoDemo();
   handleBasecampButton();
 });
-document.querySelector("#btnNight").addEventListener("click", () => {
+document.querySelector("#btnNight").addEventListener("click", async () => {
+  if (LIVE_MODE) {
+    /* 제품 화면의 야간 모드는 서버(interface.night)가 정본이다. 화면만 바꾸면 다음 /api/device
+     * 스냅샷(2 s)이 서버 값으로 되돌려 야간 모드가 유지되지 않는다(2026-09-02 실기). */
+    try {
+      await postVoiceCommand("night_toggle");
+    } catch (error) {
+      showToast(error.message, 2600);
+    }
+    return;
+  }
   cancelAutoDemo();
   setNight(!state.night, true);
 });
