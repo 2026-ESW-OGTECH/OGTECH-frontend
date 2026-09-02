@@ -43,6 +43,11 @@ PREFS
 
 wait_for_map
 
+# 시연 중 상단 메뉴(Wi-Fi 꺼짐 표시)를 끌어내리면 GNOME 이 전체화면을 풀고 Firefox 는
+# 되돌리지 않는다. 사용자가 다시 화면을 건드리면 전체화면으로 되돌린다. 이 서비스와 함께 죽는다.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 "${SCRIPT_DIR}/kiosk_fullscreen_guard.py" &
+
 if command -v firefox >/dev/null 2>&1; then
   prepare_firefox_profile
   exec firefox --kiosk --no-remote --profile "${FIREFOX_PROFILE}" "${KIOSK_URL}"
