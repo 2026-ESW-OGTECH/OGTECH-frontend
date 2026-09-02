@@ -588,7 +588,7 @@ class GpsApiIntegrationTest(unittest.TestCase):
         마이크로 물어본 것에 답하는 장면(2026-09-02 촬영 요청)이다. 답변 숫자는
         화면이 이미 가진 값이어야 하고, 값이 없으면 없다고 답해야 한다 —
         답변용 숫자를 따로 만들어 내면 화면과 음성이 서로 다른 말을 한다.
-        문장 표현은 제품 음성(Co-LLM ogtech_core)이 쓰는 것과 같다.
+        문장은 값만 짧게 말한다.
         """
         app = self.fetch_text("/video/video_app.js")
         self.assertIn("function environmentAnswerText()", app)
@@ -596,17 +596,19 @@ class GpsApiIntegrationTest(unittest.TestCase):
         self.assertIn("function daylightAnswerText()", app)
         self.assertIn("const VOICE_ANSWERS", app)
         self.assertIn("function answerAloud(kind)", app)
-        # 제품 음성과 같은 표현
-        self.assertIn("현장 센서 온도는 ${spokenDecimal(temperatureC, 1)}도, ", app)
+        # 값만 짧게 말한다. "현장 센서"·"계측값" 같은 꾸밈말은 붙이지 않는다(2026-09-02 지시).
+        self.assertIn("현재 온도는 ${spokenDecimal(temperatureC, 1)}도, ", app)
+        self.assertNotIn("현장 센서", app)
+        self.assertNotIn("센서 계측값", app)
         self.assertIn("습도는 ${Math.round(humidityPct)}퍼센트입니다.", app)
-        self.assertIn("현재 일산화탄소 센서 계측값은 ${Math.round(co.ppm)}피피엠입니다.", app)
+        self.assertIn("현재 일산화탄소는 ${Math.round(co.ppm)}피피엠입니다.${level}", app)
         self.assertIn("일몰까지 ${spokenDaylightRemaining(minutes)} 남았습니다.", app)
         self.assertIn("일몰 후 ${spokenDaylightRemaining(minutes)} 지났습니다.", app)
         # 값이 없으면 없다고 답한다(마지막 값이나 시나리오 값으로 메우지 않는다)
-        self.assertIn("온도와 습도 값이 아직 들어오지 않았습니다.", app)
-        self.assertIn("일산화탄소 값이 아직 들어오지 않았습니다.", app)
+        self.assertIn("온도와 습도 값이 아직 없습니다.", app)
+        self.assertIn("일산화탄소 값이 아직 없습니다.", app)
         self.assertIn("일산화탄소 센서는 예열 중입니다.", app)
-        self.assertIn("일몰까지 남은 시간을 아직 계산하지 못했습니다.", app)
+        self.assertIn("일몰 시간을 아직 계산하지 못했습니다.", app)
         # 물어본 순간 기다리지 않도록 값이 바뀔 때마다 미리 합성해 둔다
         self.assertIn("async function prefetchSpeech(text)", app)
         self.assertIn("function warmVoiceAnswers()", app)

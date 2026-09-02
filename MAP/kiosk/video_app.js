@@ -1573,8 +1573,8 @@ function playDaylightAudio() {
 /* 마이크로 물어본 것에 화면이 가진 값으로 답하는 문장들.
  *
  * 숫자는 계기판에 떠 있는 값을 그대로 읽는다 — 답변용으로 따로 만들어 내지 않고,
- * 값이 아직 없으면 없다고 말한다. 문장 표현은 제품 음성(Co-LLM ogtech_core)이
- * 쓰는 것과 같게 두어 화면과 스피커가 서로 다른 말을 하지 않게 한다. */
+ * 값이 아직 없으면 없다고 말한다. 문장은 값만 짧게 말한다("현재 온도는 N도,
+ * 습도는 N퍼센트입니다."). 꾸미는 말은 붙이지 않는다(2026-09-02 사용자 지시). */
 function spokenDecimal(value, digits) {
   return Number(value).toFixed(digits).replace(/\.0+$/, "");
 }
@@ -1582,9 +1582,9 @@ function spokenDecimal(value, digits) {
 function environmentAnswerText() {
   const { temperatureC, humidityPct } = state.environment;
   if (!Number.isFinite(temperatureC) || !Number.isFinite(humidityPct)) {
-    return "온도와 습도 값이 아직 들어오지 않았습니다.";
+    return "온도와 습도 값이 아직 없습니다.";
   }
-  return `현장 센서 온도는 ${spokenDecimal(temperatureC, 1)}도, `
+  return `현재 온도는 ${spokenDecimal(temperatureC, 1)}도, `
     + `습도는 ${Math.round(humidityPct)}퍼센트입니다.`;
 }
 
@@ -1593,21 +1593,22 @@ function coAnswerText() {
   if (!co.valid || !Number.isFinite(co.ppm)) {
     return co.warmingUp
       ? "일산화탄소 센서는 예열 중입니다."
-      : "일산화탄소 값이 아직 들어오지 않았습니다.";
+      : "일산화탄소 값이 아직 없습니다.";
   }
+  // 정상이면 값만 말한다. 주의·경보일 때만 그 사실을 한 마디 덧붙인다.
   const level = co.alarm || co.level === "alarm"
-    ? "경보 수준입니다."
+    ? " 경보 수준입니다."
     : co.level === "warning"
-      ? "주의 수준입니다."
-      : "정상 범위입니다.";
-  return `현재 일산화탄소 센서 계측값은 ${Math.round(co.ppm)}피피엠입니다. ${level}`;
+      ? " 주의 수준입니다."
+      : "";
+  return `현재 일산화탄소는 ${Math.round(co.ppm)}피피엠입니다.${level}`;
 }
 
 function daylightAnswerText() {
   const daylight = daylightForDisplay();
   const minutes = Number(daylight.remainingMinutes);
   if (!daylight.sunset || !Number.isFinite(minutes)) {
-    return "일몰까지 남은 시간을 아직 계산하지 못했습니다.";
+    return "일몰 시간을 아직 계산하지 못했습니다.";
   }
   return daylight.pastSunset
     ? `일몰 후 ${spokenDaylightRemaining(minutes)} 지났습니다.`
